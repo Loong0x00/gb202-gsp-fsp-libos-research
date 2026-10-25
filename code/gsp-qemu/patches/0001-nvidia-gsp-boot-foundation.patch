@@ -1,0 +1,1083 @@
+diff --git a/hw/riscv/Kconfig b/hw/riscv/Kconfig
+index de37c08..a73bae9 100644
+--- a/hw/riscv/Kconfig
++++ b/hw/riscv/Kconfig
+@@ -9,6 +9,11 @@ config IBEX
+ 
+ # RISC-V machines in alphabetical order
+ 
++config NVIDIA_GSP
++    bool
++    default y
++    depends on RISCV64
++
+ config MICROCHIP_PFSOC
+     bool
+     default y
+diff --git a/hw/riscv/meson.build b/hw/riscv/meson.build
+index 0d82cea..5352515 100644
+--- a/hw/riscv/meson.build
++++ b/hw/riscv/meson.build
+@@ -4,6 +4,12 @@ riscv_ss.add(files('boot.c'))
+ riscv_ss.add(files('fdt-common.c'))
+ riscv_ss.add(when: 'CONFIG_RISCV_NUMA', if_true: files('numa.c'))
+ riscv_ss.add(files('riscv_hart.c'))
++if 'CONFIG_NVIDIA_GSP' in config_all_devices
++  riscv_ss.add(when: 'CONFIG_NVIDIA_GSP', if_true: [
++    files('nvidia_gsp.c', 'nvidia_gsp_boot.c'),
++    dependency('openssl'), dependency('zlib'),
++  ])
++endif
+ riscv_ss.add(when: 'CONFIG_OPENTITAN', if_true: files('opentitan.c'))
+ riscv_ss.add(when: 'CONFIG_RISCV_VIRT', if_true: files('virt.c'))
+ riscv_ss.add(when: 'CONFIG_SHAKTI_C', if_true: files('shakti_c.c'))
+diff --git a/hw/riscv/nvidia_gsp.c b/hw/riscv/nvidia_gsp.c
+new file mode 100644
+index 0000000..81d47ed
+--- /dev/null
++++ b/hw/riscv/nvidia_gsp.c
+@@ -0,0 +1,213 @@
++/*
++ * NVIDIA GSP boot-chain development harness.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * No synthetic M-mode monitor, no LibOS entry shortcut and no assumed
++ * BootROM decryption key. CPU execution requires an explicit ROM image,
++ * its expected digest, and a configured ROM address. The address layout
++ * is a harness configuration, not an asserted GB202 silicon memory map.
++ */
++#include "qemu/osdep.h"
++#include "hw/core/boards.h"
++#include "hw/riscv/machines-qom.h"
++#include "hw/core/loader.h"
++#include "qapi/error.h"
++#include "qemu/cutils.h"
++#include "qemu/error-report.h"
++#include "qemu/units.h"
++#include "system/address-spaces.h"
++#include "system/reset.h"
++#include "cpu.h"
++#include "nvidia_gsp_boot.h"
++#include <openssl/evp.h>
++
++#define TYPE_NVIDIA_GSP_MACHINE MACHINE_TYPE_NAME("nvidia-gsp")
++OBJECT_DECLARE_SIMPLE_TYPE(NvidiaGspMachine, NVIDIA_GSP_MACHINE)
++
++struct NvidiaGspMachine {
++    MachineState parent_obj;
++    MemoryRegion rom;
++    char *fmc, *bootloader, *trusted_key, *rom_base, *rom_sha256;
++};
++
++static const char production_key_sha256[] =
++    "af870e5dde972840588bfb94a87f94b19ad6659dae6e1343dd0d22f16074ba39";
++
++static GBytes *read_input(const char *path, const char *label)
++{
++    struct stat st;
++    int fd = path ? open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK) : -1;
++    if (fd < 0) {
++        error_report("GSP %s input required/read failed: %s", label,
++                     path ? strerror(errno) : "missing path");
++        exit(EXIT_FAILURE);
++    }
++    /* Reject oversized files and special files before allocating or blocking. */
++    if (fstat(fd, &st) || !S_ISREG(st.st_mode) ||
++        st.st_size <= 0 || st.st_size > 128 * MiB) {
++        close(fd);
++        error_report("GSP %s input length/type invalid", label);
++        exit(EXIT_FAILURE);
++    }
++    gsize size = st.st_size;
++    char *data = g_try_malloc(size + 1);
++    FILE *file = fdopen(fd, "rb");
++    if (!data || !file) {
++        if (file) {
++            fclose(file);
++        } else {
++            close(fd);
++        }
++        g_free(data);
++        error_report("GSP %s bounded read setup failed", label);
++        exit(EXIT_FAILURE);
++    }
++    /* One extra byte detects growth after fstat without exceeding the cap. */
++    size_t count = fread(data, 1, size + 1, file);
++    bool bad_read = ferror(file) || count != size;
++    fclose(file);
++    if (bad_read) {
++        g_free(data);
++        error_report("GSP %s input changed or read failed", label);
++        exit(EXIT_FAILURE);
++    }
++    return g_bytes_new_take(data, size);
++}
++
++static void nvidia_gsp_cpu_reset(void *opaque)
++{
++    cpu_reset(CPU(opaque));
++}
++
++static void nvidia_gsp_init(MachineState *machine)
++{
++    NvidiaGspMachine *s = NVIDIA_GSP_MACHINE(machine);
++    g_autoptr(GBytes) fmc = NULL, bootloader = NULL, rom = NULL;
++    NvGspGfw gfw;
++    NvGspBootImage boot;
++    char error[256], rom_digest[65];
++    gsize fmc_size, boot_size, rom_size;
++    uint64_t rom_base;
++    unsigned char digest[EVP_MAX_MD_SIZE];
++    unsigned digest_size;
++
++    if (machine->kernel_filename || machine->initrd_filename) {
++        error_report("GSP forbids -kernel/-initrd shortcuts; supply the original ROM with -bios");
++        exit(EXIT_FAILURE);
++    }
++    fmc = read_input(s->fmc, "production GFW");
++    bootloader = read_input(s->bootloader, "production ROM package");
++    const void *fmc_data = g_bytes_get_data(fmc, &fmc_size);
++    const void *boot_data = g_bytes_get_data(bootloader, &boot_size);
++    if (!nv_gsp_parse_gfw(fmc_data, fmc_size, &gfw, error, sizeof(error)) ||
++        !nv_gsp_verify_gfw(&gfw, s->trusted_key, error, sizeof(error)) ||
++        !nv_gsp_parse_boot_image(boot_data, boot_size, &boot, error, sizeof(error)) ||
++        !nv_gsp_match_boot_images(&gfw, &boot, error, sizeof(error))) {
++        error_report("GSP stage=REJECTED: %s", error);
++        exit(EXIT_FAILURE);
++    }
++    info_report("GSP stage=SIGNED_PACKET_VERIFIED SHA384/ECDSA-P384; code=%zu data=%zu manifest=%zu",
++                boot.code.size, boot.data.size, boot.manifest.size);
++    if (!machine->firmware || !s->rom_base || !s->rom_sha256) {
++        error_report("GSP stage=BOOTROM_REQUIRED: authenticated packet is not an executable ROM. "
++                     "Supply -bios ROM, rom-base and rom-sha256. No CPU/FMC/LibOS handoff was performed; "
++                     "on-chip authentication, decoding/decryption and fuse policy remain unimplemented.");
++        exit(EXIT_FAILURE);
++    }
++    if (qemu_strtou64(s->rom_base, NULL, 0, &rom_base) ||
++        (rom_base & 4095) || strlen(s->rom_sha256) != 64) {
++        error_report("GSP invalid ROM address/digest configuration");
++        exit(EXIT_FAILURE);
++    }
++    rom = read_input(machine->firmware, "BootROM");
++    const void *rom_data = g_bytes_get_data(rom, &rom_size);
++    if (rom_size > MiB || rom_base > UINT64_MAX - MiB ||
++        (rom_base < 0x80000000ULL + machine->ram_size &&
++         rom_base + ROUND_UP(rom_size, 4096) > 0x80000000ULL)) {
++        error_report("GSP ROM range invalid or overlaps staging RAM");
++        exit(EXIT_FAILURE);
++    }
++    if (!EVP_Digest(rom_data, rom_size, digest, &digest_size, EVP_sha256(), NULL)) {
++        error_report("GSP ROM SHA256 failed");
++        exit(EXIT_FAILURE);
++    }
++    for (unsigned i = 0; i < 32; i++) {
++        snprintf(rom_digest + i * 2, 3, "%02x", digest[i]);
++    }
++    if (strcmp(rom_digest, s->rom_sha256)) {
++        error_report("GSP ROM differs from pinned SHA256");
++        exit(EXIT_FAILURE);
++    }
++    memory_region_add_subregion(get_system_memory(), 0x80000000, machine->ram);
++    memory_region_init_rom(&s->rom, NULL, "gsp.supplied-bootrom",
++                           ROUND_UP(rom_size, 4096), &error_fatal);
++    memcpy(memory_region_get_ram_ptr(&s->rom), rom_data, rom_size);
++    memory_region_add_subregion(get_system_memory(), rom_base, &s->rom);
++    RISCVCPU *cpu = RISCV_CPU(object_new(machine->cpu_type));
++    object_property_set_int(OBJECT(cpu), "resetvec", rom_base, &error_fatal);
++    qdev_realize(DEVICE(cpu), NULL, &error_fatal);
++    qemu_register_reset(nvidia_gsp_cpu_reset, cpu);
++    cpu_reset(CPU(cpu));
++    info_report("GSP stage=SUPPLIED_ROM_READY pc=0x%" PRIx64
++                "; platform MMIO/CSR/decryption are not yet implemented", rom_base);
++}
++
++#define GSP_STRING_PROPERTY(field) \
++static char *get_##field(Object *obj, Error **errp) \
++{ return g_strdup(NVIDIA_GSP_MACHINE(obj)->field); } \
++static void set_##field(Object *obj, const char *value, Error **errp) \
++{ NvidiaGspMachine *s = NVIDIA_GSP_MACHINE(obj); g_free(s->field); \
++  s->field = g_strdup(value); }
++
++GSP_STRING_PROPERTY(fmc)
++GSP_STRING_PROPERTY(bootloader)
++GSP_STRING_PROPERTY(trusted_key)
++GSP_STRING_PROPERTY(rom_base)
++GSP_STRING_PROPERTY(rom_sha256)
++
++static void nvidia_gsp_instance_init(Object *obj)
++{
++    NVIDIA_GSP_MACHINE(obj)->trusted_key = g_strdup(production_key_sha256);
++}
++
++static void nvidia_gsp_finalize(Object *obj)
++{
++    NvidiaGspMachine *s = NVIDIA_GSP_MACHINE(obj);
++    g_free(s->fmc);
++    g_free(s->bootloader);
++    g_free(s->trusted_key);
++    g_free(s->rom_base);
++    g_free(s->rom_sha256);
++}
++
++static void nvidia_gsp_class_init(ObjectClass *oc, const void *data)
++{
++    MachineClass *mc = MACHINE_CLASS(oc);
++    mc->desc = "NVIDIA GSP experimental CPU / original-ROM audit harness";
++    mc->init = nvidia_gsp_init;
++    mc->default_cpu_type = TYPE_RISCV_CPU_NVIDIA_GSP;
++    mc->default_ram_size = 128 * MiB;
++    mc->default_ram_id = "gsp.staging-ram";
++    mc->max_cpus = 1;
++    object_class_property_add_str(oc, "fmc", get_fmc, set_fmc);
++    object_class_property_add_str(oc, "bootloader", get_bootloader, set_bootloader);
++    object_class_property_add_str(oc, "trusted-key-sha256", get_trusted_key, set_trusted_key);
++    object_class_property_add_str(oc, "rom-base", get_rom_base, set_rom_base);
++    object_class_property_add_str(oc, "rom-sha256", get_rom_sha256, set_rom_sha256);
++}
++
++static const TypeInfo nvidia_gsp_machine_type = {
++    .name = TYPE_NVIDIA_GSP_MACHINE,
++    .parent = TYPE_MACHINE,
++    .instance_size = sizeof(NvidiaGspMachine),
++    .instance_init = nvidia_gsp_instance_init,
++    .instance_finalize = nvidia_gsp_finalize,
++    .class_init = nvidia_gsp_class_init,
++    .interfaces = riscv64_machine_interfaces,
++};
++
++static void nvidia_gsp_register_types(void)
++{
++    type_register_static(&nvidia_gsp_machine_type);
++}
++type_init(nvidia_gsp_register_types)
+diff --git a/hw/riscv/nvidia_gsp_boot.c b/hw/riscv/nvidia_gsp_boot.c
+new file mode 100644
+index 0000000..f5fdf51
+--- /dev/null
++++ b/hw/riscv/nvidia_gsp_boot.c
+@@ -0,0 +1,286 @@
++/*
++ * NVIDIA GSP production boot packet validation.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Formats: NVIDIA 610.57.04 nouveau/extract-firmware-nouveau.py,
++ * rmRiscvUcode.h, and generated GB202 production bindata. This does NOT
++ * implement the on-chip BootROM, FSP authentication policy, or decryption.
++ */
++#include "nvidia_gsp_boot.h"
++#include <stdarg.h>
++#include <stdio.h>
++#include <string.h>
++#include <openssl/bn.h>
++#include <openssl/core_names.h>
++#include <openssl/ecdsa.h>
++#include <openssl/evp.h>
++#include <openssl/params.h>
++#include <zlib.h>
++
++static bool fail(char *error, size_t size, const char *fmt, ...)
++    __attribute__((format(printf, 3, 4)));
++
++static bool fail(char *error, size_t size, const char *fmt, ...)
++{
++    va_list ap;
++    va_start(ap, fmt);
++    vsnprintf(error, size, fmt, ap);
++    va_end(ap);
++    return false;
++}
++
++static uint16_t le16(const uint8_t *p)
++{
++    return p[0] | (uint16_t)p[1] << 8;
++}
++
++static uint32_t le32(const uint8_t *p)
++{
++    return le16(p) | (uint32_t)le16(p + 2) << 16;
++}
++
++static bool inside(size_t total, size_t off, size_t len)
++{
++    return off <= total && len <= total - off;
++}
++
++static bool overlap(size_t a, size_t an, size_t b, size_t bn)
++{
++    return an && bn && a < b + bn && b < a + an;
++}
++
++bool nv_gsp_parse_gfw(const void *buffer, size_t size, NvGspGfw *out,
++                     char *error, size_t error_size)
++{
++    const uint8_t *data = buffer;
++    uint32_t shoff, stroff, strsize;
++    uint16_t count, names;
++    unsigned found = 0;
++    NvGspSpan spans[4] = {0};
++    static const char *const required[] = {
++        "image", "hash", "signature", "publickey"
++    };
++
++    memset(out, 0, sizeof(*out));
++    if (size < 52 || memcmp(data, "\177ELF\1\1\1", 7) ||
++        le16(data + 40) != 52 || le16(data + 46) != 40) {
++        return fail(error, error_size, "GFW: expected little-endian ELF32 container");
++    }
++    shoff = le32(data + 32);
++    count = le16(data + 48);
++    names = le16(data + 50);
++    if (!count || count > 64 || names >= count ||
++        !inside(size, shoff, (size_t)count * 40)) {
++        return fail(error, error_size, "GFW: invalid section table");
++    }
++    const uint8_t *strhdr = data + shoff + names * 40;
++    stroff = le32(strhdr + 16);
++    strsize = le32(strhdr + 20);
++    if (le32(strhdr + 4) != 3 || !strsize || !inside(size, stroff, strsize)) {
++        return fail(error, error_size, "GFW: invalid section names");
++    }
++    for (unsigned i = 1; i < count; i++) {
++        const uint8_t *h = data + shoff + i * 40;
++        uint32_t nameoff = le32(h), off = le32(h + 16), len = le32(h + 20);
++        if (nameoff >= strsize ||
++            !memchr(data + stroff + nameoff, 0, strsize - nameoff) ||
++            !inside(size, off, len)) {
++            return fail(error, error_size, "GFW: invalid section %u", i);
++        }
++        const char *name = (const char *)data + stroff + nameoff;
++        for (unsigned j = 0; j < 4; j++) {
++            if (strcmp(name, required[j])) {
++                continue;
++            }
++            if ((found & (1U << j)) || le32(h + 4) != 1 || !len ||
++                overlap(off, len, 0, 52) ||
++                overlap(off, len, shoff, (size_t)count * 40) ||
++                overlap(off, len, stroff, strsize)) {
++                return fail(error, error_size, "GFW: duplicate/invalid %s section", name);
++            }
++            for (unsigned k = 0; k < 4; k++) {
++                if (spans[k].data && overlap(off, len,
++                    (size_t)(spans[k].data - data), spans[k].size)) {
++                    return fail(error, error_size, "GFW: overlapping payload sections");
++                }
++            }
++            if ((uint32_t)crc32(0, data + off, len) != le32(h + 28)) {
++                return fail(error, error_size, "GFW: CRC mismatch in %s", name);
++            }
++            spans[j] = (NvGspSpan){data + off, len};
++            found |= 1U << j;
++        }
++    }
++    if (found != 15 || spans[1].size != 48 || spans[2].size != 96 ||
++        spans[3].size != 97 || spans[3].data[0] != 4) {
++        return fail(error, error_size, "GFW: missing/unsupported SHA384/P384 fields");
++    }
++    *out = (NvGspGfw){spans[0], spans[1], spans[2], spans[3]};
++    return true;
++}
++
++bool nv_gsp_verify_gfw(const NvGspGfw *gfw, const char *trusted_key_sha256,
++                      char *error, size_t error_size)
++{
++    unsigned char digest[EVP_MAX_MD_SIZE];
++    unsigned int digest_size;
++    char fingerprint[65];
++    EVP_PKEY_CTX *ctx = NULL, *verify = NULL;
++    EVP_PKEY *key = NULL;
++    ECDSA_SIG *sig = NULL;
++    BIGNUM *r = NULL, *s = NULL;
++    unsigned char *der = NULL;
++    int der_size;
++    bool ok = false;
++    char group[] = "secp384r1";
++
++    if (!trusted_key_sha256 || strlen(trusted_key_sha256) != 64) {
++        return fail(error, error_size, "GFW: explicit trusted public-key SHA256 required");
++    }
++    if (!EVP_Digest(gfw->public_key.data, gfw->public_key.size, digest,
++                    &digest_size, EVP_sha256(), NULL)) {
++        return fail(error, error_size, "GFW: key fingerprint computation failed");
++    }
++    for (unsigned i = 0; i < 32; i++) {
++        snprintf(fingerprint + i * 2, 3, "%02x", digest[i]);
++    }
++    if (strcmp(fingerprint, trusted_key_sha256)) {
++        return fail(error, error_size, "GFW: public key does not match pinned trust anchor");
++    }
++    if (!EVP_Digest(gfw->image.data, gfw->image.size, digest, &digest_size,
++                    EVP_sha384(), NULL) || digest_size != 48 ||
++        memcmp(digest, gfw->hash.data, 48)) {
++        return fail(error, error_size, "GFW: SHA384 image digest mismatch");
++    }
++    ctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
++    OSSL_PARAM params[] = {
++        OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME, group, 0),
++        OSSL_PARAM_construct_octet_string(OSSL_PKEY_PARAM_PUB_KEY,
++            (void *)gfw->public_key.data, gfw->public_key.size),
++        OSSL_PARAM_construct_end()
++    };
++    if (!ctx || EVP_PKEY_fromdata_init(ctx) <= 0 ||
++        EVP_PKEY_fromdata(ctx, &key, EVP_PKEY_PUBLIC_KEY, params) <= 0) {
++        fail(error, error_size, "GFW: invalid P384 public key");
++        goto done;
++    }
++    r = BN_bin2bn(gfw->signature.data, 48, NULL);
++    s = BN_bin2bn(gfw->signature.data + 48, 48, NULL);
++    sig = ECDSA_SIG_new();
++    if (!r || !s || !sig || !ECDSA_SIG_set0(sig, r, s)) {
++        fail(error, error_size, "GFW: invalid ECDSA signature encoding");
++        goto done;
++    }
++    r = s = NULL;
++    der_size = i2d_ECDSA_SIG(sig, &der);
++    verify = EVP_PKEY_CTX_new(key, NULL);
++    if (der_size <= 0 || !verify || EVP_PKEY_verify_init(verify) <= 0 ||
++        EVP_PKEY_CTX_set_signature_md(verify, EVP_sha384()) <= 0 ||
++        EVP_PKEY_verify(verify, der, der_size, digest, 48) != 1) {
++        fail(error, error_size, "GFW: P384 signature verification failed");
++        goto done;
++    }
++    ok = true;
++done:
++    OPENSSL_free(der);
++    BN_free(r);
++    BN_free(s);
++    ECDSA_SIG_free(sig);
++    EVP_PKEY_CTX_free(verify);
++    EVP_PKEY_free(key);
++    EVP_PKEY_CTX_free(ctx);
++    return ok;
++}
++
++bool nv_gsp_parse_boot_image(const void *buffer, size_t size,
++                            NvGspBootImage *out, char *error,
++                            size_t error_size)
++{
++    const uint8_t *data = buffer, *desc;
++    uint32_t descoff, imageoff, imagesize, total;
++    NvGspSpan parts[3];
++    const unsigned offset_fields[] = {8, 12, 10}; /* manifest, code, data */
++
++    memset(out, 0, sizeof(*out));
++    if (size < 24 || le32(data) != 0x10de || le32(data + 4) != 1) {
++        return fail(error, error_size, "FMC: invalid nvfw_bin_hdr");
++    }
++    total = le32(data + 8);
++    descoff = le32(data + 12);
++    imageoff = le32(data + 16);
++    imagesize = le32(data + 20);
++    if (descoff != 24 || imageoff != 116 ||
++        !inside(size, imageoff, imagesize) || size != (size_t)imageoff + imagesize ||
++        ((size + 255) & ~(size_t)255) != total) {
++        return fail(error, error_size, "FMC: invalid v6 descriptor/image bounds");
++    }
++    desc = data + descoff;
++    if (le32(desc) != 6 || le32(desc + 14 * 4) != 1) {
++        return fail(error, error_size, "FMC: unsupported descriptor or disabled monitor");
++    }
++    for (unsigned i = 0; i < 3; i++) {
++        unsigned field = offset_fields[i];
++        uint32_t off = le32(desc + field * 4), len = le32(desc + (field + 1) * 4);
++        if (!len || (off & 255) || (len & 255) || !inside(imagesize, off, len)) {
++            return fail(error, error_size, "FMC: invalid/alignment error in descriptor range %u", i);
++        }
++        for (unsigned j = 0; j < i; j++) {
++            if (overlap(off, len, (size_t)(parts[j].data - data - imageoff), parts[j].size)) {
++                return fail(error, error_size, "FMC: overlapping descriptor ranges");
++            }
++        }
++        parts[i] = (NvGspSpan){data + imageoff + off, len};
++    }
++    *out = (NvGspBootImage){6, {data + imageoff, imagesize},
++                            parts[0], parts[1], parts[2]};
++    return true;
++}
++
++bool nv_gsp_match_boot_images(const NvGspGfw *gfw,
++                             const NvGspBootImage *boot,
++                             char *error, size_t error_size)
++{
++    const uint8_t *h = gfw->image.data;
++    size_t size = gfw->image.size;
++    if (size < 72 || h[0] != 3 || le16(h + 2) != 72 ||
++        le32(h + 4) != size - 72 || le32(h + 12) != boot->code.size ||
++        le32(h + 20) != boot->data.size ||
++        size - 72 != boot->code.size + boot->data.size + boot->manifest.size ||
++        memcmp(h + 72, boot->code.data, boot->code.size) ||
++        memcmp(h + 72 + boot->code.size, boot->data.data, boot->data.size) ||
++        memcmp(h + 72 + boot->code.size + boot->data.size,
++               boot->manifest.data, boot->manifest.size)) {
++        return fail(error, error_size, "FMC: GFW and ROM boot payloads do not match");
++    }
++    return true;
++}
++
++bool nv_gsp_boot_dma_plan(const NvGspBootImage *boot, uint64_t sysmem_base,
++                          NvGspBootDmaPlan *plan, char *error,
++                          size_t error_size)
++{
++    /* NVIDIA 610.57.04 _kgspBootstrapGspFmc_GH100 and dev_riscv_pri.h:
++     * addresses are shifted by 8; BCR address HI implements bits 11:0.
++     * This API requires a successfully parsed, unchanged BootImage.
++     */
++    const uint64_t physical_limit = UINT64_C(1) << 52;
++    uint64_t manifest, code, data;
++    memset(plan, 0, sizeof(*plan));
++    if ((sysmem_base & 255) || sysmem_base >= physical_limit ||
++        boot->image.size > physical_limit - sysmem_base) {
++        return fail(error, error_size, "FMC: unaligned/out-of-range BootROM DMA placement");
++    }
++    manifest = (sysmem_base + (boot->manifest.data - boot->image.data)) >> 8;
++    code = (sysmem_base + (boot->code.data - boot->image.data)) >> 8;
++    data = (sysmem_base + (boot->data.data - boot->image.data)) >> 8;
++    *plan = (NvGspBootDmaPlan){
++        .dmacfg = UINT32_C(0x80000001), /* LOCKED | COHERENT_SYSMEM */
++        .manifest_lo = manifest,
++        .manifest_hi = manifest >> 32,
++        .code_lo = code,
++        .code_hi = code >> 32,
++        .data_lo = data,
++        .data_hi = data >> 32,
++    };
++    return true;
++}
+diff --git a/hw/riscv/nvidia_gsp_boot.h b/hw/riscv/nvidia_gsp_boot.h
+new file mode 100644
+index 0000000..2c4db6f
+--- /dev/null
++++ b/hw/riscv/nvidia_gsp_boot.h
+@@ -0,0 +1,45 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef HW_RISCV_NVIDIA_GSP_BOOT_H
++#define HW_RISCV_NVIDIA_GSP_BOOT_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++/* Host-side packet validation only. No instruction or BootROM emulation. */
++typedef struct NvGspSpan {
++    const uint8_t *data;
++    size_t size;
++} NvGspSpan;
++
++typedef struct NvGspGfw {
++    NvGspSpan image, hash, signature, public_key;
++} NvGspGfw;
++
++typedef struct NvGspBootImage {
++    uint32_t descriptor_version;
++    NvGspSpan image, manifest, code, data;
++} NvGspBootImage;
++
++/* Host-programmed BootROM DMA register values, not a boot-success token. */
++typedef struct NvGspBootDmaPlan {
++    uint32_t dmacfg;
++    uint32_t manifest_lo, manifest_hi;
++    uint32_t code_lo, code_hi;
++    uint32_t data_lo, data_hi;
++} NvGspBootDmaPlan;
++
++bool nv_gsp_parse_gfw(const void *data, size_t size, NvGspGfw *out,
++                     char *error, size_t error_size);
++bool nv_gsp_verify_gfw(const NvGspGfw *gfw, const char *trusted_key_sha256,
++                      char *error, size_t error_size);
++bool nv_gsp_parse_boot_image(const void *data, size_t size,
++                            NvGspBootImage *out, char *error,
++                            size_t error_size);
++bool nv_gsp_match_boot_images(const NvGspGfw *gfw,
++                             const NvGspBootImage *boot,
++                             char *error, size_t error_size);
++bool nv_gsp_boot_dma_plan(const NvGspBootImage *boot, uint64_t sysmem_base,
++                          NvGspBootDmaPlan *plan, char *error,
++                          size_t error_size);
++#endif
+diff --git a/target/riscv/cpu-qom.h b/target/riscv/cpu-qom.h
+index 1a28f13..32749c4 100644
+--- a/target/riscv/cpu-qom.h
++++ b/target/riscv/cpu-qom.h
+@@ -33,6 +33,7 @@
+ #define TYPE_RISCV_CPU_MAX32            RISCV_CPU_TYPE_NAME("max32")
+ #define TYPE_RISCV_CPU_BASE32           RISCV_CPU_TYPE_NAME("rv32")
+ #define TYPE_RISCV_CPU_BASE64           RISCV_CPU_TYPE_NAME("rv64")
++#define TYPE_RISCV_CPU_NVIDIA_GSP       RISCV_CPU_TYPE_NAME("nvidia-gsp")
+ #define TYPE_RISCV_CPU_BASE128          RISCV_CPU_TYPE_NAME("x-rv128")
+ #define TYPE_RISCV_CPU_RV32I            RISCV_CPU_TYPE_NAME("rv32i")
+ #define TYPE_RISCV_CPU_RV32E            RISCV_CPU_TYPE_NAME("rv32e")
+diff --git a/target/riscv/cpu.c b/target/riscv/cpu.c
+index b04beee..0d52e82 100644
+--- a/target/riscv/cpu.c
++++ b/target/riscv/cpu.c
+@@ -1011,6 +1011,10 @@ static void riscv_cpu_reset_hold(Object *obj, ResetType type)
+     env->mcause = 0;
+     env->miclaim = MIP_SGEIP;
+     env->pc = env->resetvec;
++    env->nv_smpu_index = 0;
++    memset(env->nv_smpu, 0, sizeof(env->nv_smpu));
++    env->nv_indirect_index = 0;
++    memset(env->nv_indirect_reset, 0, sizeof(env->nv_indirect_reset));
+     env->bins = 0;
+     env->two_stage_lookup = false;
+ 
+@@ -3368,6 +3372,23 @@ static const TypeInfo riscv_cpu_type_infos[] = {
+         .cfg.ext_svvptc = true,
+     ),
+ 
++#if !defined(CONFIG_USER_ONLY) && defined(CONFIG_TCG)
++    /* Standard ISA execution stays in QEMU; only GSP-specific state differs. */
++    DEFINE_RISCV_CPU(TYPE_RISCV_CPU_NVIDIA_GSP, TYPE_RISCV_VENDOR_CPU,
++        .misa_mxl_max = MXL_RV64,
++        .misa_ext = RVI | RVM | RVA | RVC | RVS | RVU,
++        .priv_spec = PRIV_VERSION_1_11_0,
++        .cfg.nv_gsp = true,
++        .cfg.mmu = true,
++        .cfg.pmp = true,
++        .cfg.max_satp_mode = VM_1_10_SV39,
++        .cfg.ext_zicsr = true,
++        .cfg.ext_zifencei = true,
++        .cfg.ext_zicntr = true,
++        .custom_csrs = nv_gsp_csr_list,
++    ),
++#endif
++
+     DEFINE_RISCV_CPU(TYPE_RISCV_CPU_SIFIVE_E51, TYPE_RISCV_CPU_SIFIVE_E,
+         .misa_mxl_max = MXL_RV64
+     ),
+diff --git a/target/riscv/cpu.h b/target/riscv/cpu.h
+index e980b59..fd6c3a0 100644
+--- a/target/riscv/cpu.h
++++ b/target/riscv/cpu.h
+@@ -249,6 +249,16 @@ typedef struct PMUFixedCtrState {
+     uint64_t counter_virt_prev[2];
+ } PMUFixedCtrState;
+ 
++/* Index mask/scan bound are 0x7f/0x80 in the original GB20X kernel. */
++#define RISCV_NV_GSP_SMPU_ENTRIES 128
++
++typedef struct RISCVNvGspMpuEntry {
++    uint64_t va;
++    uint64_t pa;
++    uint64_t size;
++    uint64_t attr;
++} RISCVNvGspMpuEntry;
++
+ struct CPUArchState {
+     uint64_t gpr[32];
+     uint64_t gprh[32]; /* 64 top bits of the 128-bit registers */
+@@ -313,6 +323,11 @@ struct CPUArchState {
+     uint8_t geilen;
+     uint64_t resetvec;
+ 
++    uint32_t nv_smpu_index;
++    RISCVNvGspMpuEntry nv_smpu[RISCV_NV_GSP_SMPU_ENTRIES];
++    uint32_t nv_indirect_index;
++    uint64_t nv_indirect_reset[2];
++
+     uint64_t mhartid;
+     /*
+      * For RV32 this is 32-bit mstatus and 32-bit mstatush.
+diff --git a/target/riscv/cpu_cfg_fields.h.inc b/target/riscv/cpu_cfg_fields.h.inc
+index 9eb47af..a235a7c 100644
+--- a/target/riscv/cpu_cfg_fields.h.inc
++++ b/target/riscv/cpu_cfg_fields.h.inc
+@@ -157,6 +157,9 @@ BOOL_FIELD(ext_xmipscmov)
+ BOOL_FIELD(ext_xmipslsp)
+ BOOL_FIELD(ext_xlrbr)
+ 
++/* Experimental, firmware-derived NVIDIA GSP MPU model. */
++BOOL_FIELD(nv_gsp)
++
+ BOOL_FIELD(big_endian)
+ BOOL_FIELD(mmu)
+ BOOL_FIELD(pmp)
+diff --git a/target/riscv/machine.c b/target/riscv/machine.c
+index 31c49ca..7eba46f 100644
+--- a/target/riscv/machine.c
++++ b/target/riscv/machine.c
+@@ -29,6 +29,53 @@
+ #include "kvm/kvm_riscv.h"
+ #endif
+ 
++static bool nv_gsp_needed(void *opaque)
++{
++    return RISCV_CPU(opaque)->cfg.nv_gsp;
++}
++
++static int nv_gsp_post_load(void *opaque, int version_id)
++{
++    RISCVCPU *cpu = RISCV_CPU(opaque);
++    if (!cpu->cfg.nv_gsp ||
++        cpu->env.nv_smpu_index >= RISCV_NV_GSP_SMPU_ENTRIES ||
++        cpu->env.nv_indirect_index > 1 ||
++        cpu->env.nv_indirect_reset[0] || cpu->env.nv_indirect_reset[1]) {
++        return -EINVAL;
++    }
++    return 0;
++}
++
++static const VMStateDescription vmstate_nv_gsp_entry = {
++    .name = "cpu/nv-gsp/entry",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT64(va, RISCVNvGspMpuEntry),
++        VMSTATE_UINT64(pa, RISCVNvGspMpuEntry),
++        VMSTATE_UINT64(size, RISCVNvGspMpuEntry),
++        VMSTATE_UINT64(attr, RISCVNvGspMpuEntry),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static const VMStateDescription vmstate_nv_gsp = {
++    .name = "cpu/nv-gsp",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = nv_gsp_needed,
++    .post_load = nv_gsp_post_load,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT32(env.nv_smpu_index, RISCVCPU),
++        VMSTATE_STRUCT_ARRAY(env.nv_smpu, RISCVCPU,
++                             RISCV_NV_GSP_SMPU_ENTRIES, 0,
++                             vmstate_nv_gsp_entry, RISCVNvGspMpuEntry),
++        VMSTATE_UINT32(env.nv_indirect_index, RISCVCPU),
++        VMSTATE_UINT64_ARRAY(env.nv_indirect_reset, RISCVCPU, 2),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
+ static bool pmp_needed(void *opaque)
+ {
+     RISCVCPU *cpu = opaque;
+@@ -560,6 +607,7 @@ const VMStateDescription vmstate_riscv_cpu = {
+     },
+     .subsections = (const VMStateDescription * const []) {
+         &vmstate_pmp,
++        &vmstate_nv_gsp,
+         &vmstate_hyper,
+         &vmstate_vector,
+         &vmstate_pointermasking,
+diff --git a/target/riscv/tcg/cpu_helper.c b/target/riscv/tcg/cpu_helper.c
+index 07d9222..09df1a3 100644
+--- a/target/riscv/tcg/cpu_helper.c
++++ b/target/riscv/tcg/cpu_helper.c
+@@ -38,6 +38,7 @@
+ #include "target/riscv/tcg/debug.h"
+ #include "pmp.h"
+ #include "qemu/plugin.h"
++#include "target/riscv/tcg/nv_gsp.h"
+ 
+ int riscv_env_mmu_index(CPURISCVState *env, bool ifetch)
+ {
+@@ -1037,6 +1038,13 @@ static int get_physical_address(CPURISCVState *env, hwaddr *physical,
+         use_background = true;
+     }
+ 
++    if (first_stage && riscv_nv_gsp_mpu_active(env, mmu_idx)) {
++        hwaddr page_size;
++        return riscv_nv_gsp_mpu_translate(env, addr, 1, access_type, mmu_idx,
++                                          physical, ret_prot, &page_size) ?
++               TRANSLATE_SUCCESS : TRANSLATE_FAIL;
++    }
++
+     if (mode == PRV_M || !riscv_cpu_cfg(env)->mmu) {
+         *physical = addr;
+         *ret_prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
+@@ -1758,6 +1766,21 @@ bool riscv_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+         }
+     }
+ 
++    if (ret == TRANSLATE_SUCCESS && !two_stage_lookup &&
++        riscv_nv_gsp_mpu_active(env, mmu_idx)) {
++        hwaddr nv_pa, nv_page_size;
++        int nv_prot;
++        if (!riscv_nv_gsp_mpu_translate(env, address, size, access_type,
++                                        mmu_idx, &nv_pa, &nv_prot,
++                                        &nv_page_size)) {
++            ret = TRANSLATE_FAIL;
++        } else {
++            g_assert(nv_pa == pa);
++            prot &= nv_prot;
++            tlb_size = MIN(tlb_size, nv_page_size);
++        }
++    }
++
+     if (ret == TRANSLATE_PMP_FAIL || ret == TRANSLATE_PMA_FAIL) {
+         pmp_pma_violation = true;
+     }
+diff --git a/target/riscv/tcg/csr.c b/target/riscv/tcg/csr.c
+index a4cd126..fce7a5f 100644
+--- a/target/riscv/tcg/csr.c
++++ b/target/riscv/tcg/csr.c
+@@ -1956,6 +1956,9 @@ static bool validate_vm(CPURISCVState *env, target_ulong vm)
+     const bool *valid_vm = rv32 ? valid_vm_1_10_32 : valid_vm_1_10_64;
+ 
+     assert(satp_mode_supported_max >= 0);
++    if (!rv32 && cpu->cfg.nv_gsp && vm == 15) {
++        return true;
++    }
+     return vm <= satp_mode_supported_max && valid_vm[vm];
+ }
+ 
+diff --git a/target/riscv/tcg/csr.h b/target/riscv/tcg/csr.h
+index 53ba3b4..c2e8268 100644
+--- a/target/riscv/tcg/csr.h
++++ b/target/riscv/tcg/csr.h
+@@ -87,6 +87,9 @@ extern const RISCVCSR th_csr_list[];
+ /* Implemented in mips_csr.c */
+ extern const RISCVCSR mips_csr_list[];
+ 
++/* Firmware-derived NVIDIA GSP supervisor MPU. */
++extern const RISCVCSR nv_gsp_csr_list[];
++
+ /* PMP CSRs, defined in pmp.c */
+ void pmpcfg_csr_write(CPURISCVState *env, uint32_t reg_index,
+                       target_ulong val);
+diff --git a/target/riscv/tcg/meson.build b/target/riscv/tcg/meson.build
+index a05ab64..f988662 100644
+--- a/target/riscv/tcg/meson.build
++++ b/target/riscv/tcg/meson.build
+@@ -21,6 +21,7 @@ riscv_ss.add(files(
+ riscv_system_ss.add(files(
+   'debug.c',
+   'mips_csr.c',
++  'nv_gsp.c',
+   'pmp.c',
+   'pmu.c',
+   'th_csr.c',
+diff --git a/target/riscv/tcg/nv_gsp.c b/target/riscv/tcg/nv_gsp.c
+new file mode 100644
+index 0000000..18db7f7
+--- /dev/null
++++ b/target/riscv/tcg/nv_gsp.c
+@@ -0,0 +1,212 @@
++/*
++ * Firmware-derived NVIDIA GSP supervisor MPU model.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Evidence is the unchanged GB20X kernel: boot 0x93000000..0x9300010e,
++ * invalidation 0x93006eae..0x93006ece, and fault/attribute table
++ * 0x9300a538..0x9300a708. No proprietary instruction is replaced by NOP.
++ * Unknown overlap priority and incongruent sub-page mappings fail explicitly.
++ */
++#include "qemu/osdep.h"
++#include "qemu/error-report.h"
++#include "qemu/log.h"
++#include "cpu.h"
++#include "internals.h"
++#include "exec/cputlb.h"
++#include "exec/page-protection.h"
++#include "exec/target_page.h"
++#include "target/riscv/tcg/csr.h"
++#include "nv_gsp.h"
++
++#define NV_SMPU_INDEX 0x5ca
++#define NV_SMPU_VA    0x5cb
++#define NV_SMPU_PA    0x5cc
++#define NV_SMPU_SIZE  0x5ce
++#define NV_SMPU_ATTR  0x5cf
++#define NV_RESET_SEL  0x5d0
++#define NV_RESET_DATA 0x5d1
++#define NV_SMPU_GRANULE 1024
++
++static RISCVException nv_supervisor(CPURISCVState *env, int csrno)
++{
++    return riscv_cpu_cfg(env)->nv_gsp ? RISCV_EXCP_NONE :
++                                      RISCV_EXCP_ILLEGAL_INST;
++}
++
++static RISCVException nv_read(CPURISCVState *env, int csrno,
++                              target_ulong *value)
++{
++    RISCVNvGspMpuEntry *entry = &env->nv_smpu[env->nv_smpu_index];
++    switch (csrno) {
++    case NV_SMPU_INDEX: *value = env->nv_smpu_index; break;
++    case NV_SMPU_VA: *value = entry->va; break;
++    case NV_SMPU_PA: *value = entry->pa; break;
++    case NV_SMPU_SIZE: *value = entry->size; break;
++    case NV_SMPU_ATTR: *value = entry->attr; break;
++    case NV_RESET_SEL: *value = env->nv_indirect_index; break;
++    case NV_RESET_DATA:
++        *value = env->nv_indirect_reset[env->nv_indirect_index];
++        break;
++    default: return RISCV_EXCP_ILLEGAL_INST;
++    }
++    return RISCV_EXCP_NONE;
++}
++
++static RISCVException nv_write(CPURISCVState *env, int csrno,
++                               target_ulong value, uintptr_t ra)
++{
++    RISCVNvGspMpuEntry *entry = &env->nv_smpu[env->nv_smpu_index];
++    switch (csrno) {
++    case NV_SMPU_INDEX:
++        if (value >= RISCV_NV_GSP_SMPU_ENTRIES) {
++            return RISCV_EXCP_ILLEGAL_INST;
++        }
++        env->nv_smpu_index = value;
++        return RISCV_EXCP_NONE;
++    case NV_SMPU_VA: entry->va = value; break;
++    case NV_SMPU_PA: entry->pa = value; break;
++    case NV_SMPU_SIZE: entry->size = value; break;
++    case NV_SMPU_ATTR: entry->attr = value; break;
++    case NV_RESET_SEL:
++        if (value > 1) {
++            return RISCV_EXCP_ILLEGAL_INST;
++        }
++        env->nv_indirect_index = value;
++        return RISCV_EXCP_NONE;
++    case NV_RESET_DATA:
++        /* Only reset/clear semantics are recovered, not event programming. */
++        if (value) {
++            qemu_log_mask(LOG_UNIMP, "nv-gsp: unsupported 5d1 selector=%u value=%"
++                          PRIx64 " pc=%" PRIx64 "\n", env->nv_indirect_index,
++                          (uint64_t)value, (uint64_t)env->pc);
++            return RISCV_EXCP_ILLEGAL_INST;
++        }
++        env->nv_indirect_reset[env->nv_indirect_index] = 0;
++        return RISCV_EXCP_NONE;
++    default: return RISCV_EXCP_ILLEGAL_INST;
++    }
++    /* VA is not an atomic commit: the fault path writes VA before PA/size. */
++    tlb_flush(env_cpu(env));
++    qemu_log_mask(CPU_LOG_MMU, "nv-gsp: slot=%u va=%016" PRIx64
++                  " pa=%016" PRIx64 " size=%016" PRIx64
++                  " attr=%016" PRIx64 "\n", env->nv_smpu_index,
++                  entry->va, entry->pa, entry->size, entry->attr);
++    return RISCV_EXCP_NONE;
++}
++
++#define NV_CSR(number, name) \
++    { .csrno = number, .csr_ops = { name, nv_supervisor, nv_read, nv_write } }
++const RISCVCSR nv_gsp_csr_list[] = {
++    NV_CSR(NV_SMPU_INDEX, "nv.smpu.index"),
++    NV_CSR(NV_SMPU_VA, "nv.smpu.va"),
++    NV_CSR(NV_SMPU_PA, "nv.smpu.pa"),
++    NV_CSR(NV_SMPU_SIZE, "nv.smpu.size"),
++    NV_CSR(NV_SMPU_ATTR, "nv.smpu.attr"),
++    NV_CSR(NV_RESET_SEL, "nv.reset.select"),
++    NV_CSR(NV_RESET_DATA, "nv.reset.data"),
++    { .csrno = 0 }
++};
++
++bool riscv_nv_gsp_mpu_active(CPURISCVState *env, int mmu_idx)
++{
++    return riscv_cpu_cfg(env)->nv_gsp &&
++           mmuidx_priv(mmu_idx) != PRV_M && !mmuidx_2stage(mmu_idx) &&
++           get_field(env->satp, SATP64_MODE) == 15;
++}
++
++bool riscv_nv_gsp_mpu_translate(CPURISCVState *env, vaddr addr, int size,
++                                MMUAccessType access, int mmu_idx,
++                                hwaddr *physical, int *prot,
++                                hwaddr *tlb_size)
++{
++    const RISCVNvGspMpuEntry *matched = NULL;
++    unsigned matched_slot = 0;
++    uint64_t translated = 0, mapping_offset = 0;
++    int permissions = 0;
++    unsigned shift = mmuidx_priv(mmu_idx) == PRV_U ? 0 : 3;
++    size = MAX(size, 1);
++    *prot = 0;
++    *tlb_size = TARGET_PAGE_SIZE;
++    if ((uint64_t)addr > UINT64_MAX - ((uint64_t)size - 1)) {
++        return false;
++    }
++    for (unsigned i = 0; i < RISCV_NV_GSP_SMPU_ENTRIES; i++) {
++        const RISCVNvGspMpuEntry *e = &env->nv_smpu[i];
++        uint64_t base = e->va & ~UINT64_C(0x3ff);
++        uint64_t page_base = addr & TARGET_PAGE_MASK;
++        if (!(e->va & 1) || !e->size) {
++            continue;
++        }
++        /* A different window can begin/end inside this target page without
++         * matching the current address. Do not cache across that boundary.
++         */
++        if ((base > page_base && base - page_base < TARGET_PAGE_SIZE) ||
++            (base <= page_base && page_base - base < e->size &&
++             e->size - (page_base - base) < TARGET_PAGE_SIZE)) {
++            *tlb_size = NV_SMPU_GRANULE;
++        }
++        if (addr < base && base - addr < (uint64_t)size) {
++            error_report("nv-gsp: access crosses unresolved MPU boundary slot=%u", i);
++            exit(EXIT_FAILURE);
++        }
++        if (addr < base || addr - base >= e->size) {
++            continue;
++        }
++        uint64_t offset = addr - base;
++        if ((e->va & 0x3fe) || (e->pa & 0x3ff) ||
++            (e->size & 0x3ff) || e->pa > UINT64_MAX - offset) {
++            error_report("nv-gsp: unmodeled MPU alignment/flags slot=%u", i);
++            exit(EXIT_FAILURE);
++        }
++        uint64_t pa = e->pa + offset;
++        unsigned bits = (e->attr >> shift) & 7;
++        int p = ((bits & 1) ? PAGE_READ : 0) |
++                ((bits & 2) ? PAGE_WRITE : 0) |
++                ((bits & 4) ? PAGE_EXEC : 0);
++        if (matched && (pa != translated || p != permissions ||
++                        e->attr != matched->attr)) {
++            error_report("nv-gsp: unresolved overlapping MPU priority slots=%u/%u",
++                         matched_slot, i);
++            exit(EXIT_FAILURE);
++        }
++        if ((uint64_t)size > e->size - offset ||
++            pa > UINT64_MAX - ((uint64_t)size - 1)) {
++            return false;
++        }
++        if (((pa ^ addr) & (TARGET_PAGE_SIZE - 1)) != 0) {
++            error_report("nv-gsp: incongruent sub-page mapping not implemented slot=%u", i);
++            exit(EXIT_FAILURE);
++        }
++        matched = e;
++        matched_slot = i;
++        translated = pa;
++        mapping_offset = offset;
++        permissions = p;
++        uint64_t page_offset = addr & (TARGET_PAGE_SIZE - 1);
++        if (offset < page_offset ||
++            e->size - (offset - page_offset) < TARGET_PAGE_SIZE) {
++            *tlb_size = NV_SMPU_GRANULE;
++        }
++    }
++    if (!matched) {
++        qemu_log_mask(CPU_LOG_MMU, "nv-gsp: miss va=%016" PRIx64 "\n",
++                      (uint64_t)addr);
++        return false;
++    }
++    int required = access == MMU_INST_FETCH ? PAGE_EXEC :
++                   access == MMU_DATA_STORE ? PAGE_WRITE : PAGE_READ;
++    *prot = permissions;
++    if (!(permissions & required)) {
++        qemu_log_mask(CPU_LOG_MMU, "nv-gsp: denied slot=%u va=%016" PRIx64
++                      " access=%u priv=%u attr=%016" PRIx64 "\n",
++                      matched_slot, (uint64_t)addr, access,
++                      mmuidx_priv(mmu_idx), matched->attr);
++        return false;
++    }
++    *physical = translated;
++    qemu_log_mask(CPU_LOG_MMU, "nv-gsp: hit slot=%u va=%016" PRIx64
++                  " pa=%016" PRIx64 " offset=%" PRIx64 " prot=%x\n",
++                  matched_slot, (uint64_t)addr, translated, mapping_offset,
++                  permissions);
++    return true;
++}
+diff --git a/target/riscv/tcg/nv_gsp.h b/target/riscv/tcg/nv_gsp.h
+new file mode 100644
+index 0000000..bcfd469
+--- /dev/null
++++ b/target/riscv/tcg/nv_gsp.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef RISCV_TCG_NV_GSP_H
++#define RISCV_TCG_NV_GSP_H
++
++#include "cpu.h"
++
++bool riscv_nv_gsp_mpu_active(CPURISCVState *env, int mmu_idx);
++bool riscv_nv_gsp_mpu_translate(CPURISCVState *env, vaddr addr, int size,
++                                MMUAccessType access, int mmu_idx,
++                                hwaddr *physical, int *prot,
++                                hwaddr *tlb_size);
++#endif

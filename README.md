@@ -53,7 +53,7 @@
 1. **不保证完全正确。** 本仓库是个人研究笔记,不是权威文档,可能包含错误、过时结论、证据不足的推测,甚至已被后续实验推翻的内容。已知勘误见 [`CORRECTIONS.md`](CORRECTIONS.md),但勘误未必齐全。所有结论均绑定特定驱动/固件/VBIOS 版本,换版本不保证成立。引用前请自行核验原始证据链。
 2. **仅供研究与学习。** 仓库内容为个人安全研究记录,按原样(AS-IS)提供,不构成任何形式的保证。使用者自行承担一切后果。
 3. **漏洞披露状态。** `PSIRT_DRAFT_*.md` 两份报告已于 2026-10-13 私密提交 NVIDIA PSIRT(见 `SUBMISSION_RECORD_20261013.md`),另有公开 issue [NVIDIA/open-gpu-kernel-modules#1442](https://github.com/NVIDIA/open-gpu-kernel-modules/issues/1442)。截至发布时未收到修复;相关内容在此按原样公开,谁愿意看谁看。
-4. **不含 NVIDIA 专有资产。** 仓库只收录 Markdown 研究笔记:不含 MODS 源文件、不含驱动源码树、不含固件二进制/Ghidra 工程/反汇编全量产物。引用的开源代码片段来自 MIT/GPL 双许可的 [open-gpu-kernel-modules](https://github.com/NVIDIA/open-gpu-kernel-modules)。
+4. **不含 NVIDIA 专有资产。** 仓库以 Markdown 研究笔记为主,另附少量**本人编写的**配套源码(`code/`,QEMU 补丁、模拟器、FSP 探测模块):不含 MODS 源文件、不含驱动源码树、不含固件二进制/Ghidra 工程/反汇编全量产物。引用的开源代码片段来自 MIT/GPL 双许可的 [open-gpu-kernel-modules](https://github.com/NVIDIA/open-gpu-kernel-modules)。
 5. **隐私处理。** 发布前已扫描并清理个人隐私信息(邮箱、token、真实 IP、硬件序列号、主机名等);文中出现的 `10.0.2.x`/`52:54:00:*` 等地址均为 QEMU 虚拟化内部默认值,非真实网络信息。报告草稿中的报告人字段为占位符。如仍发现疏漏,请开 issue,将及时处理。
 6. 文中 NVIDIA、RTX、GeForce 等商标归 NVIDIA Corporation 所有;本研究与 NVIDIA 无关联、未获其授权或认可。
 
@@ -72,10 +72,11 @@
 ├── vfio_production_lab/      # 生产 VM 直通环境
 ├── driver-diffs/             # 610→615 驱动 LibOS 公开源码差异分析
 ├── web-research/             # 公开资料调研(FSP/InfoROM/PRC 恢复)
+├── code/                     # 自研配套源码:QEMU GSP 补丁/脚本/测试、rv64_emu.py、FSP 探测模块
 └── *.md                      # 根目录 137 份主线研究文档
 ```
 
-原始实验项目(含脚本、日志、二进制、Ghidra 工程约 6.8GB)未收录,本仓库只发布文档层。
+原始实验项目(含日志、二进制、Ghidra 工程约 6.8GB)未收录;除 `code/` 少量自研源码外仅发布文档层。
 
 ## License
 
@@ -83,4 +84,4 @@
 
 ## English TL;DR
 
-Personal reverse-engineering research notes (291 markdown docs) on the NVIDIA RTX 5090 (GB202) firmware stack: GSP (RISC-V security processor) privilege-escalation research, FSP (Falcon Security Processor) chain-of-trust analysis (COT/WPR), and LibOS kernel emulation with mainline QEMU, plus clock/voltage/power/fan/L2/SM side quests. Evidence-graded E0–E6, version-pinned to specific driver branches. **Not affiliated with NVIDIA. Provided as-is with no guarantee of correctness — verify before relying on anything.** No NVIDIA proprietary sources or firmware binaries included (no MODS source files, no driver trees); notes only. Vulnerability reports were privately submitted to NVIDIA PSIRT on 2026-10-13 and are published here as-is.
+Personal reverse-engineering research notes (291 markdown docs) on the NVIDIA RTX 5090 (GB202) firmware stack: GSP (RISC-V security processor) privilege-escalation research, FSP (Falcon Security Processor) chain-of-trust analysis (COT/WPR), and LibOS kernel emulation with mainline QEMU, plus clock/voltage/power/fan/L2/SM side quests. Evidence-graded E0–E6, version-pinned to specific driver branches. **Not affiliated with NVIDIA. Provided as-is with no guarantee of correctness — verify before relying on anything.** No NVIDIA proprietary sources or firmware binaries included (no MODS source files, no driver trees); notes plus a small `code/` directory of self-authored tooling (QEMU GSP patch, RV64 emulator, FSP probe kernel modules — **may permanently damage your GPU, use at your own risk**). Vulnerability reports were privately submitted to NVIDIA PSIRT on 2026-10-13 and are published here as-is.
