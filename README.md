@@ -14,7 +14,7 @@
 
 # English
 
-Personal reverse-engineering research notes on the NVIDIA RTX 5090 (GB202) GPU firmware stack — **342 files: 293 markdown research docs + self-authored tooling source code**. Topics: GSP (RISC-V security processor) firmware RE, LibOS kernel emulation, FSP chain-of-trust analysis, plus clock/voltage/power governance, L2/SM/ISA, fan control and other side quests.
+Personal reverse-engineering research notes on the NVIDIA RTX 5090 (GB202) GPU firmware stack — **357 files: 306 markdown research docs + self-authored tooling source code**. Topics: GSP (RISC-V security processor) firmware RE, LibOS kernel emulation, FSP chain-of-trust analysis, plus clock/voltage/power governance, L2/SM/ISA, fan control and other side quests.
 
 Methods: Ghidra static disassembly + a self-built QEMU emulation lab + experiments on a physical RTX 5090 (bare metal and VFIO passthrough).
 
@@ -27,6 +27,18 @@ Methods: Ghidra static disassembly + a self-built QEMU emulation lab + experimen
 | **GSP privilege escalation** | GSP-RM RPC queue overflow, B8 callback hijack, heap object lifecycle, U-mode→S-mode chain | RPC overflow / read primitive / zero primitive verified on real hardware (E1); end-to-end chain **not closed** |
 | **FSP chain of trust** | COT/WPR trust chain, PRC/MNOC/EMEM channels, NVDM message layer, runtime/persistent DoS | Many black-box E0 findings; ~95% of the 860-byte COT verification fields are ignored by FSP |
 | **LibOS emulation** | Running production FMC/LibOS in mainline QEMU to recover the GSP boot chain | Production LibOS boots to init and walks the 384B boot-region table (E3); full chain incomplete |
+
+### 2026-10-25/26 update: FSP plaintext assault
+
+- **GPU recovered** from BADF lockdown (missing /dev/nvidia0, not permanent brick)
+- **FSP_RUN v6 envelope fully mapped** (descriptor fields, IV/tag/AAD layout)
+- **GPU key-space search: ~1.2×10^12 candidates, all negative** (lrand48/MSVC rand/glibc random/composite strings/anchored streams across 3 builds × corpus windows × CC labels)
+- **Thor T264 PSC cousin architecture extracted** (container spec, KDF chain, tegraopenssl tool) — shipped images use NVIDIA internal SBK, not public OEM keys
+- **GSP-RM kslot tracing closed**: key material never passes through firmware memory (hardware window direct)
+- **Dell updater AES-CMAC (DMOVERAES128) located** at 0xad4933; final verification on GPU side
+- **PRC knob full 16-bit scan**: 44 alive knobs (0x0000-0x002B), read-only; write path closed with all flags
+- **FSP memory windows (0x8f0000/2000/3000): all PLM-locked** (different BADF codes per block)
+- **HULK verification code in plaintext GSP-RM** (3AES signature vs GPU fuse) — future RE target
 
 Side quests: runtime MCLK/XBAR control, VF curve governance, power budget, fan routing, L2 slices, SM120 cache/register ISA, dual-BIOS-slot forensics, and more.
 
