@@ -1,8 +1,8 @@
 # GSP/FSP/LibOS 文档索引（INDEX）
 
-> 生成日期：2026-10-18（第一步产物，仅登记，未移动/删除/覆盖任何原文档）
-> 范围：`/home/user/gsp_libos_clean` 下全部 `.md`，共 **230** 份（已排除 `ghidra_static/*.rep`、`gsp_qemu/qemu`、`gsp_qemu/build`、`.pytest_cache`、`__pycache__` 等二进制/构建/缓存目录）。
-> 本索引由脚本按文件实际 H1 与 mtime/文件名日期生成，条目内容为人工判读。
+> 初始生成日期：2026-10-18（第一步产物，仅登记，未移动/删除/覆盖任何原文档）。
+> 初始范围：`/home/user/gsp_libos_clean` 下 **230** 份 `.md`。该主体表保持历史快照；2026-10-25 至 10-27 新增的 25 份公开研究文档列在“零、后索引新增文档”中，没有重新生成全部旧条目。
+> 已排除固件、Ghidra 工程、构建目录和缓存等大体量/专有材料。
 
 ## 图例
 
@@ -41,7 +41,37 @@
 | 九、对外投稿与 issue 草稿（18） | 18 |
 | 十、VM / VFIO 实验环境（17） | 17 |
 | 十一、厂商源码（8） | 8 |
-| **合计** | **230** |
+| **合计（2026-10-18 主体表）** | **230** |
+
+## 零、后索引新增文档（25，2026-10-25 至 2026-10-27）
+
+| 路径 | 状态 | 证据类别 | 一句话摘要 |
+|---|---|---|---|
+| `BLACKWELL_UNBOUNDED_COPY_SURFACE_20261025.md` | 权威(静态边界) | 静态+综合 | 对 Ampere→Blackwell 无界拷贝攻击面做结构审计：旧 SEC2 booter 入口消失，FSP 本体仍是密文黑盒，明文 RISC-V GSP 层保留多处 count 类缺陷。 |
+| `SESSION_20261025_NIGHT_FULL_REPORT.md` | 历史事故记录(⚠以更正表为准) | 真机+综合 | 10-25/26 FSP 明文攻击及 GPU 事故记录；“永久 BADF/SPI”结论已被 C-19 修正。 |
+| `parallel/fsp_attack_20261026/FSP_PLAINTEXT_ASSAULT_20261026.md` | 历史搜索记录(⚠非空间穷尽证明) | 静态+计算 | 大规模候选搜索与 FSP 明文攻击记录；旧过滤/模型局限见 C-23。 |
+| `parallel/fsp_attack_20261026/GSP_RM_DERIVEHWKEY_RE_20261026.md` | 权威(静态限定) | 静态 | GSP-RM hardware-key/kslot 路径逆向，证明可见的是运行期 aperture/keyslot consumer，不是目标 root/data-key producer。 |
+| `parallel/fsp_attack_20261026/astra_srand32_report.md` | 参考 | 静态+计算 | Astra srand32 候选生成与阴性结果记录。 |
+| `vbios_diff/dell_8d_payload/DELL_VERIFIER_RE_20261026.md` | 权威(更正后) | 静态 | Dell payload verifier 逆向；`0xad4933` 为 OpenSSL XTS 路径而非 FSP CMAC verifier。 |
+| `GSP_GLM53_CONTEXT_AUDIT_20261026.md` | 权威 | 日志取证 | 分阶段复核 10-25/26 事故：真实 GSP 故障、恢复失败、权限/设备节点误判必须分开。 |
+| `GSP_RECOVERY_20261026.md` | 权威(短时恢复) | 真机 | 补回设备节点、修复 DKMS/黑名单残留并验证 `nvidia-smi`/CUDA；不解释全部历史根因。 |
+| `HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md` | 权威(风险收束) | 综合 | 汇总真机 FSP/GSP/WPR2/PCIe/PMU/内核风险，明确停止现有 RTX 5090 的固件实验。 |
+| `vm_mods_lab/MODS570215_DIAGNOSTIC_SUMMARY_20260825.md` | 权威(既有实验摘要) | 真机VM | MODS 570.215 诊断汇总：18001 MHz 导致 PMU halt；600W 配置下遥测峰值超过 657W。 |
+| `fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md` | 权威(专项最终状态) | 综合 | GB202 FSP 明文专项最终状态：未取得明文；仅在新工件或独立硬件授权出现时恢复。 |
+| `fsp_plaintext_audit_20261027/REPORT.md` | 权威 | 综合 | 离线密码、FuseRework、FieldDiag 580、制造包和公网搜索的主报告。 |
+| `fsp_plaintext_audit_20261027/FUSEREWORK_ABI.md` | 权威 | 静态 | FuseRework `0x0f` 请求 ABI、固定认证材料尺寸及 4-byte ACK。 |
+| `fsp_plaintext_audit_20261027/FSP_SENDER_CALLSITE_AUDIT.md` | 权威 | 静态 | MODS 570 sender 的七个直接调用点；无 bulk plaintext response。 |
+| `fsp_plaintext_audit_20261027/FUSEREWORK_CALLCHAIN_DIFF.md` | 权威 | 静态 | 570.151/215/278 FuseRework 文件加载与调用链差分。 |
+| `fsp_plaintext_audit_20261027/V6_CRYPTO_KDF_CONSUMER_AUDIT.md` | 权威 | 静态 | 闭合 AES-256-GCM host consumer ABI；未找到目标 key/KDF/root producer。 |
+| `fsp_plaintext_audit_20261027/GB202_MFG_HIDDEN_REWORK_AUDIT.md` | 权威 | 静态 | GB202 制造包隐藏返修审计；未找到目标四件套或工程 helper。 |
+| `fsp_plaintext_audit_20261027/DGX_SPARK_FIELDDIAG_AUDIT.md` | 权威 | 静态 | 公开 DGX Spark FieldDiag/MODS 580 包审计；无目标 `FSP_RUN` 明文或 FuseRework 四件套。 |
+| `fsp_plaintext_audit_20261027/FIELDDIAG580_AARCH64_FSP_SENDER_AUDIT.md` | 权威 | 静态 | AArch64 FieldDiag 580 sender 七个调用点，响应仅 4/12/24 bytes。 |
+| `fsp_plaintext_audit_20261027/FIELDDIAG580_PRIVATE_GFW_ATTRIBUTION.md` | 权威 | 静态 | 29 个 type-4 GFW 的公开/私有归属；不应误标为 FuseRework。 |
+| `fsp_plaintext_audit_20261027/WEB_HUNT_ENGLISH.md` | 公开搜索记录 | 公开 | 英语论坛、官方条目及网盘搜索；无可验证目标文件。 |
+| `fsp_plaintext_audit_20261027/WEB_HUNT_CHINESE.md` | 公开搜索记录 | 公开 | 中文论坛、B 站及网盘线索搜索；无可验证目标文件。 |
+| `fsp_plaintext_audit_20261027/WEB_HUNT_RU_REPAIR.md` | 公开搜索记录 | 公开 | 俄语/东欧维修社区与镜像搜索；无可验证目标文件。 |
+| `fsp_plaintext_audit_20261027/WEB_HUNT_INDEX_ARCHIVES.md` | 公开搜索记录 | 公开 | 代码托管、归档和 NVIDIA 公共索引搜索。 |
+| `fsp_plaintext_audit_20261027/WEB_HUNT_MEISTER_V6.md` | 权威(远程目录取证) | 公开+静态 | 用 Range/7z/Btrfs metadata 重建 22.38GB 社区镜像当前文件树，确认无目标文件。 |
 
 ## 一、项目元文档（2）
 

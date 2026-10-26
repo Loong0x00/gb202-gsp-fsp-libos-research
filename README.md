@@ -14,7 +14,7 @@
 
 # English
 
-Personal reverse-engineering research notes on the NVIDIA RTX 5090 (GB202) GPU firmware stack — **357 files: 306 markdown research docs + self-authored tooling source code**. Topics: GSP (RISC-V security processor) firmware RE, LibOS kernel emulation, FSP chain-of-trust analysis, plus clock/voltage/power governance, L2/SM/ISA, fan control and other side quests.
+Personal reverse-engineering research notes on the NVIDIA RTX 5090 (GB202) GPU firmware stack — **377 tracked files, including 318 Markdown research documents and self-authored tooling source code**. Topics: GSP (RISC-V security processor) firmware RE, LibOS kernel emulation, FSP chain-of-trust analysis, plus clock/voltage/power governance, L2/SM/ISA, fan control and other side quests.
 
 Methods: Ghidra static disassembly + a self-built QEMU emulation lab + experiments on a physical RTX 5090 (bare metal and VFIO passthrough).
 
@@ -22,23 +22,26 @@ Methods: Ghidra static disassembly + a self-built QEMU emulation lab + experimen
 
 ## Three research lines
 
-| Line | Topic | Status (as of 2026-10-18) |
+| Line | Topic | Status (as of 2026-10-27) |
 |---|---|---|
-| **GSP privilege escalation** | GSP-RM RPC queue overflow, B8 callback hijack, heap object lifecycle, U-mode→S-mode chain | RPC overflow / read primitive / zero primitive verified on real hardware (E1); end-to-end chain **not closed** |
-| **FSP chain of trust** | COT/WPR trust chain, PRC/MNOC/EMEM channels, NVDM message layer, runtime/persistent DoS | Many black-box E0 findings; ~95% of the 860-byte COT verification fields are ignored by FSP |
+| **GSP privilege escalation** | GSP-RM RPC queue overflow, B8 callback hijack, heap object lifecycle, U-mode→S-mode chain | RPC overflow / read primitive / zero primitive verified on real hardware (E1); end-to-end chain **not closed**; no further live-card experiments planned |
+| **FSP chain of trust / plaintext** | COT/WPR trust chain, PRC/MNOC/EMEM, encrypted `FSP_RUN`, FieldDiag/FuseRework | Offline audit identifies an AES-256-GCM software consumer model, but no target plaintext, data key, KDF root, or supported export path; live-card work stopped |
 | **LibOS emulation** | Running production FMC/LibOS in mainline QEMU to recover the GSP boot chain | Production LibOS boots to init and walks the 384B boot-region table (E3); full chain incomplete |
 
-### 2026-10-25/26 update: FSP plaintext assault
+### 2026-10-25/26 correction and recovery update
 
-- **GPU recovered** from BADF lockdown (missing /dev/nvidia0, not permanent brick)
-- **FSP_RUN v6 envelope fully mapped** (descriptor fields, IV/tag/AAD layout)
-- **GPU key-space search: ~1.2×10^12 candidates, all negative** (lrand48/MSVC rand/glibc random/composite strings/anchored streams across 3 builds × corpus windows × CC labels)
-- **Thor T264 PSC cousin architecture extracted** (container spec, KDF chain, tegraopenssl tool) — shipped images use NVIDIA internal SBK, not public OEM keys
-- **GSP-RM kslot tracing closed**: key material never passes through firmware memory (hardware window direct)
-- **Dell updater AES-CMAC (DMOVERAES128) located** at 0xad4933; final verification on GPU side
-- **PRC knob full 16-bit scan**: 44 alive knobs (0x0000-0x002B), read-only; write path closed with all flags
-- **FSP memory windows (0x8f0000/2000/3000): all PLM-locked** (different BADF codes per block)
-- **HULK verification code in plaintext GSP-RM** (3AES signature vs GPU fuse) — future RE target
+- The original heartbeat/RPC/watchdog failures and several post-reset initialization failures were real. A later final-state check was additionally confused by a missing `/dev/nvidia0`, cgroup permissions and an incorrect driver-binding check. See [`GSP_GLM53_CONTEXT_AUDIT_20261026.md`](GSP_GLM53_CONTEXT_AUDIT_20261026.md) and [`GSP_RECOVERY_20261026.md`](GSP_RECOVERY_20261026.md).
+- The historical ~`1.2×10^12` candidate search did not yield a key, but later review found first-block filtering and model limitations; it is **not** a valid proof that the key space was exhausted.
+- `0xad4933` in the Dell updater is OpenSSL `bsaes_xts_decrypt`, not an FSP AES-CMAC verifier.
+- The strongest recovered host software ABI is AES-256-GCM with a 32-byte caller-supplied key, 12-byte IV, 16-byte tag and empty AAD. This does not reveal the target FSP key or prove the device-side KDF.
+
+### 2026-10-27 update: offline FSP plaintext audit closed
+
+- 58 valid local `FSP_RUN` records were inventoried, including six unique GB202 payload/descriptor objects; ordinary RTX 5090 retail VBIOSes mostly reuse one object.
+- MODS 570.151/570.215/570.278 and public FieldDiag/MODS 580 packages were audited. No plaintext, bulk decrypt-to-host API, Blackwell `fuserework.bin`, or its three RSA-3072 sidecars was found.
+- Public English/Chinese/Russian forum, archive and cloud-drive searches found no verifiable target bundle. A 22.38 GB community image was inventoried remotely through 7z/Btrfs metadata without downloading it in full; its current tree contains only known 540/570 packages.
+- Final status: [`fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md`](fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md).
+- Live hardware experimentation is explicitly stopped because malformed messages, broad MMIO reads and recovery operations have produced FSP/GSP/WPR2/PCIe/kernel failure chains. See [`HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md`](HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md).
 
 Side quests: runtime MCLK/XBAR control, VF curve governance, power budget, fan routing, L2 slices, SM120 cache/register ISA, dual-BIOS-slot forensics, and more.
 
@@ -46,7 +49,7 @@ Side quests: runtime MCLK/XBAR control, VF curve governance, power budget, fan r
 
 - [`AUTHORITATIVE_STATUS.md`](AUTHORITATIVE_STATUS.md) — the authoritative status overview (start here)
 - [`FINDINGS.md`](FINDINGS.md) — all conclusions with E0–E6 evidence grades
-- [`docs/INDEX.md`](docs/INDEX.md) — categorized index of 230 source docs (status / evidence class / one-line summary)
+- [`docs/INDEX.md`](docs/INDEX.md) — categorized 2026-10-18 index plus a post-index addendum
 - [`docs/EVIDENCE.md`](docs/EVIDENCE.md) — evidence grading definitions
 - [`code/`](code/README.md) — self-authored tooling: the QEMU GSP machine patch, `rv64_emu.py`, FSP probe kernel modules
 - Vulnerability inventory & reports: `VULN_INVENTORY.md`, `FSP_BUG_INVENTORY.md`, `PSIRT_DRAFT_1_GB202_FSP_RUNTIME_DOS.md`, `PSIRT_DRAFT_2_GB202_WPR2_PERSISTENT_STATE.md`, `SUBMISSION_RECORD_20261013.md`
@@ -71,6 +74,7 @@ Evidence grading (E0–E6): E0 direct real-hardware observation, E1 real-hardwar
 ├── docs/                     # indexes, evidence grading, dedup plan, 54 archived copies
 ├── fsp_code/                 # FSP firmware static-analysis notes
 ├── fsp_ace_static_20260927/  # FSP static campaign (AUDIT/VERDICT/RUNBOOK)
+├── fsp_plaintext_audit_20261027/ # final offline crypto/FieldDiag/FuseRework/web-hunt reports
 ├── gsp_qemu/docs/            # QEMU GSP emulation lab docs
 ├── power_governor_reverse/   # clock/voltage/power governance RE (78 docs)
 ├── vm_mods_lab/              # VM/VFIO/MODS experiment notes (docs only, no MODS sources)
@@ -78,7 +82,7 @@ Evidence grading (E0–E6): E0 direct real-hardware observation, E1 real-hardwar
 ├── driver-diffs/             # 610→615 driver LibOS public-source diff analysis
 ├── web-research/             # public-source survey (FSP/InfoROM/PRC recovery)
 ├── code/                     # self-authored tooling: QEMU GSP patch/scripts/tests, rv64_emu.py, FSP probes
-└── *.md                      # 137 mainline research docs at repo root
+└── *.md                      # mainline research and risk/recovery documents at repo root
 ```
 
 The original ~6.8 GB experiment project (logs, binaries, Ghidra projects) is not included; aside from the small `code/` directory this repo publishes documentation only.
@@ -93,7 +97,7 @@ Text: [CC BY-NC-SA 4.0](LICENSE), except quoted third-party material. The QEMU p
 
 # 中文部分
 
-个人对 NVIDIA RTX 5090(GB202)GPU 固件层的逆向工程研究资料库,共 **342 个文件**(293 份研究文档 + 自研配套源码)。内容涵盖 GSP(RISC-V 安全处理器)固件逆向、LibOS 内核模拟执行、FSP 信任链分析,以及时钟/电压/功耗治理、L2/SM/ISA、风扇控制等周边逆向成果。
+个人对 NVIDIA RTX 5090(GB202)GPU 固件层的逆向工程研究资料库，共 **377 个受 Git 跟踪的文件，其中 318 份为 Markdown 研究文档**，另含自研配套源码。内容涵盖 GSP(RISC-V 安全处理器)固件逆向、LibOS 内核模拟执行、FSP 信任链与明文获取审计，以及时钟/电压/功耗治理、L2/SM/ISA、风扇控制等周边逆向成果。
 
 研究方法:Ghidra 静态反汇编 + QEMU 自建模拟环境 + 物理 RTX 5090 真机/VFIO 直通实验。
 
@@ -101,20 +105,35 @@ Text: [CC BY-NC-SA 4.0](LICENSE), except quoted third-party material. The QEMU p
 
 ## 三条研究主线
 
-| 支线 | 内容 | 截至 2026-10-18 状态 |
+| 支线 | 内容 | 截至 2026-10-27 状态 |
 |---|---|---|
-| **GSP 提权** | GSP-RM RPC 消息队列溢出、B8 回调劫持、堆对象生命周期、U-mode→S-mode 提权链 | RPC 溢出/读原语/清零原语已真机成立(E1);端到端提权链**未闭合** |
-| **FSP 信任链** | COT/WPR 信任链、PRC/MNOC/EMEM 通道、NVDM 消息层、runtime/persistent DoS | 大量黑盒 E0 结论;COT 860 字节中约 95% 验证字段被 FSP 忽略 |
+| **GSP 提权** | GSP-RM RPC 消息队列溢出、B8 回调劫持、堆对象生命周期、U-mode→S-mode 提权链 | RPC 溢出/读原语/清零原语已真机成立(E1);端到端提权链**未闭合**；不再继续现有真卡实验 |
+| **FSP 信任链/明文** | COT/WPR、PRC/MNOC/EMEM、加密 `FSP_RUN`、FieldDiag/FuseRework | 已恢复 AES-256-GCM 软件 consumer 模型，但没有目标明文、data key、KDF root 或受支持的导出路径；真机路线停止 |
 | **LibOS 模拟** | 用主线 QEMU 执行生产 FMC/LibOS,恢复 GSP 启动链 | 生产 LibOS 已 boot 到 init、穿过 384B 启动区域表(E3);完整启动链未完成 |
 
-另有:时钟/MCLK/XBAR 运行时控制、VF 曲线治理、功耗预算、风扇路由、L2 切片、SM120 cache/寄存器 ISA、VBIOS 双槽取证等大量支线文档。
+### 2026-10-25/26 更正与恢复更新
+
+- 最初的 heartbeat/RPC/watchdog 故障及若干复位后初始化失败确实发生；但最后阶段又混入 `/dev/nvidia0` 缺失、cgroup 权限及错误驱动绑定检查。详见 [`GSP_GLM53_CONTEXT_AUDIT_20261026.md`](GSP_GLM53_CONTEXT_AUDIT_20261026.md) 和 [`GSP_RECOVERY_20261026.md`](GSP_RECOVERY_20261026.md)。
+- 历史约 `1.2×10^12` 候选搜索没有命中，但后来发现首块过滤和模型局限，不能把它当作“密钥空间已穷尽”的证明。
+- Dell updater 的 `0xad4933` 是 OpenSSL `bsaes_xts_decrypt`，不是 FSP AES-CMAC verifier。
+- 当前最强 host 软件 ABI 是 AES-256-GCM：调用者提供 32 字节 key、12 字节 IV、16 字节 tag，AAD 为空；它不泄露目标 FSP key，也不能证明片内 KDF。
+
+### 2026-10-27 更新：FSP 明文离线审计收束
+
+- 本地盘点得到 58 条有效 `FSP_RUN` 记录和 6 个唯一 GB202 payload/descriptor；普通 RTX 5090 零售 VBIOS 基本复用同一个对象。
+- 审计 MODS 570.151/570.215/570.278 及公开 FieldDiag/MODS 580 后，没有发现明文、bulk decrypt-to-host API、Blackwell `fuserework.bin` 或三个 RSA-3072 sidecar。
+- 中英俄论坛、公开归档及网盘搜索没有找到可验证目标包。一个 22.38GB 社区镜像通过 7z/Btrfs 元数据远程列出当前文件树，无需完整下载，确认只含已知 540/570 包。
+- 最终状态：[`fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md`](fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md)。
+- 因畸形消息、广泛 MMIO 读取及恢复操作曾形成 FSP/GSP/WPR2/PCIe/内核级故障链，明确停止真机路线。风险清单见 [`HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md`](HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md)。
+
+另有：时钟/MCLK/XBAR 运行时控制、VF 曲线治理、功耗预算、风扇路由、L2 切片、SM120 cache/寄存器 ISA、VBIOS 双槽取证等大量支线文档。
 
 ## 快速导航
 
 **5 分钟了解现状**:
 1. [`AUTHORITATIVE_STATUS.md`](AUTHORITATIVE_STATUS.md) — 唯一权威进度总览(先读这个)
 2. [`FINDINGS.md`](FINDINGS.md) — 全部结论清单,带 E0–E6 证据分级
-3. [`docs/INDEX.md`](docs/INDEX.md) — 230 份原始文档的分类索引(状态/证据类别/一句话摘要)
+3. [`docs/INDEX.md`](docs/INDEX.md) — 2026-10-18 分类索引及后续新增文档附录
 4. [`docs/EVIDENCE.md`](docs/EVIDENCE.md) — 证据分级定义
 
 **按主题深入**:
@@ -155,6 +174,7 @@ Text: [CC BY-NC-SA 4.0](LICENSE), except quoted third-party material. The QEMU p
 ├── docs/                     # INDEX 索引、证据分级、去重计划、54 份归档副本
 ├── fsp_code/                 # FSP 固件静态分析笔记
 ├── fsp_ace_static_20260927/  # FSP 静态战役(AUDIT/VERDICT/RUNBOOK)
+├── fsp_plaintext_audit_20261027/ # FSP 离线密码/FieldDiag/FuseRework/公网搜索报告
 ├── gsp_qemu/docs/            # QEMU 模拟 GSP 实验室文档
 ├── power_governor_reverse/   # 时钟/电压/功耗治理逆向(78 份)
 ├── vm_mods_lab/              # VM/VFIO/MODS 实验笔记(仅文档,无 MODS 源文件)
@@ -162,7 +182,7 @@ Text: [CC BY-NC-SA 4.0](LICENSE), except quoted third-party material. The QEMU p
 ├── driver-diffs/             # 610→615 驱动 LibOS 公开源码差异分析
 ├── web-research/             # 公开资料调研(FSP/InfoROM/PRC 恢复)
 ├── code/                     # 自研配套源码:QEMU GSP 补丁/脚本/测试、rv64_emu.py、FSP 探测模块
-└── *.md                      # 根目录 137 份主线研究文档
+└── *.md                      # 根目录主线研究、风险与恢复记录
 ```
 
 原始实验项目(含日志、二进制、Ghidra 工程约 6.8GB)未收录;除 `code/` 少量自研源码外仅发布文档层。

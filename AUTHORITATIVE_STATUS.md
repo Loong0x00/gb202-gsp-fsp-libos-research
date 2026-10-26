@@ -1,9 +1,9 @@
 # GSP / LibOS 研究权威总览
 
 > **文件**：`/home/user/gsp_libos_clean/AUTHORITATIVE_STATUS.md`
-> **版本**：2026-10-18（r2：QEMU 384B 启动区域表已建模，停点推进）
-> **定位**：唯一权威当前进度。先读本文件；细节再查 `STATUS.md`、`FINDINGS.md`、`OPEN_QUESTIONS.md`、`NEXT_STEPS.md`、`CORRECTIONS.md`。
-> **原始资料**：230 份原始 `.md` 全部保留在原路径，未修改、未移动、未删除；原件在 `/home/user/rt_5090_project`，本目录是只读副本。
+> **版本**：2026-10-27（r3：补入 FSP 明文离线审计收束、事故复核与真机停止决定）
+> **定位**：GSP/LibOS 主线权威进度。FSP 明文专项的最终入口是 `fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md`；硬件风险见 `HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md`。
+> **原始资料**：2026-10-18 的 230 份索引语料仍保留；10-25 至 10-27 的新增文档通过 `docs/INDEX.md` 附录登记。原始大体量实验材料仍不纳入公开仓库。
 > **证据分级**：E0–E6，定义见 `docs/EVIDENCE.md`。本文件所有结论都带级别；没有级别的“已验证/实锤”不作数。
 
 ---
@@ -26,7 +26,7 @@
 2. **真机与模拟器冲突时拆成两条 claim。** 典型：t0=4 fast path 的 lab 语义（E3）与真机 U-mode 可达性（未证）。
 3. **后续文档只是“声称”而没有证据时，标 unresolved。** 只有“后续 + 证据”才能进 `CORRECTIONS.md` 的“已裁决”。
 4. **地址必须带版本。** 610.57.04 / 615.71.09 / MODS 570.215 的 VA 不可互套。
-5. **不改原件。** 发现错误 → 追加到 `CORRECTIONS.md`，不编辑原始文档。
+5. **原则上不改历史原文。** 发现错误先登记到 `CORRECTIONS.md`；若错误会直接误导密码学归因或硬件安全判断，公开副本可加醒目更正横幅并改写错误段落，同时保留更正记录。
 
 ---
 
@@ -36,9 +36,9 @@
 
 **真机 GSP 支线**：RPC 队列溢出、B8 回调劫持、读原语、清零原语已成立（E1）；“U-mode 可达的提权链”**仍未闭合**。
 
-**FSP 支线**：COT/WPR 信任链、PRC/MNOC/EMEM、runtime DoS 现象有大量 E0 结论；永久 DoS 的**最小充分触发未知**。
+**FSP 支线**：离线审计恢复了 AES-256-GCM 软件 consumer ABI（32-byte caller key、12-byte IV、16-byte tag、空 AAD），但没有获得 GB202 `FSP_RUN` 明文、data key、KDF root 或 bulk plaintext export。公开 MODS/FieldDiag/FuseRework 搜索亦未得到关键四件套。
 
-**结论**：目前没有一条从 U-mode 到 S-mode 代码执行的端到端、真机可复现链条。QEMU 侧有受控的 dtor/S-mode 入口，但真机可达性未证明。
+**结论**：目前没有一条从 U-mode 到 S-mode 代码执行的端到端、真机可复现链条，也没有 GB202 FSP 明文。由于已有 FSP/GSP/WPR2/PCIe/内核级事故链，现有 RTX 5090 的真机实验明确停止；后续仅保留离线静态、模拟器或独立可牺牲样品路线。
 
 ---
 
@@ -64,9 +64,9 @@
 
 ### 2.3 安全前提
 
-- 真机实验前先 `nvidia-smi` 确认卡状态；WPR2 死锁需要 SBR 或完整断电恢复（`FINDINGS.md` REC-02/REC-03）。
-- 破坏性实验（ELF 注入、FSP 写、flash 操作）必须先有 arm/disarm 与回滚方案。
-- 不伪造启动成功、不改原厂固件（`AGENTS.md`）。
+- **当前决定：不再对现有 RTX 5090 执行 FSP/GSP 消息、BAR/MMIO 扫描、reset、MODS 极限测试、FuseRework、flash 或 fuse 操作。**
+- 历史记录证明“只读”和“恢复”也不天然安全：宽范围扫描、畸形消息、bind/rescan/SBR 曾造成 Xid、WPR2 stale、掉总线以及不可杀的内核 R/D 状态。
+- 离线模拟继续遵守 `AGENTS.md`：不伪造启动成功、不改原厂固件；任何未来真机工作须使用独立可牺牲样品并重新取得明确授权。
 
 ---
 
@@ -97,10 +97,10 @@
 | FSP-COT | COT 信任链 | 860B 中 816B（95%）验证字段被忽略：hash384 全 0xFF、publicKey 任意值，固件未改仍启动 | E0 | 可用；但改固件 1 字节会被拒 |
 | FSP-WPR | WPR 元数据签名 | 签名验证真实；COT 层不是 | E0 | 两层必须分开表述 |
 | FSP-DOS | FSP runtime 不可用 | 一段畸形 NVDM/传输序列后，PRC/FWUP/caps/InfoROM/clock boost 持续不可用，跨完整断电；GSP 启动与计算仍正常 | E0/E5 | 现象成立；**最小充分触发未知** |
-| FSP-PRC | PRC knobs | 47 个 knob 完整地图；PRC 写入可 flash 持久化 | E0 | 设计如此；可作为持久化原语 |
+| FSP-PRC | PRC knobs | 47 个 knob 地图及真实写路径；观察到跨会话/复位域状态，但早期“必然写入 InfoROM flash”的归因已降级 | E0/E6 | 生命周期与存储机制未完全证明；禁止继续真机写入 |
 | FSP-MNOC | MNOC port 0 | 协议完整闭合，脏卡验证通过；旧“硬件级来源验证”结论错误 | E0 | 可用 |
 | FSP-EMEM | EMEM 队列 | `QUEUE_HEAD` 宿主可写，`QUEUE_TAIL` dword 单位，单包驻留；PSEC 块同型 | E2 | 静态；可作通道 |
-| FSP-ENCRYPT | FSP_RUN 加密 | AES-GCM，熵 7.999/字节，密钥芯片内锚定；无明文 | E2/E6 | 静态分析边界 |
+| FSP-ENCRYPT | FSP_RUN 加密 | MODS host helper 证明 AES-256-GCM 软件 consumer ABI：32B caller key、12B IV、16B tag、空 AAD；目标 key/KDF/root 未找到，无明文 | E4 | 不能把 host consumer 等同于 FSP 片内 producer；专项已收束 |
 | TOC-FMC | FMC TOCTOU | 验证期写入→干净拒绝；加载期写入→FSP 锁死；加载后写入→无效 | E0 | **没有可用于 FMC 的漏检窗口** |
 | TOC-ELF | GSP ELF TOCTOU | 27MB ELF 在 `sendAndRead` 返回后 100ms 仍被读；写起始 4 字节即挂死 | E0 | 读到 ≠ 执行 |
 | TOC-GSP | GSP FMC 写入 | `fw[0x10000]` 写入到达物理内存（d564→0902），GPU 仍工作 | E0 | **未证明执行**；可能在 I-Cache/死代码 |
@@ -125,7 +125,7 @@
 - **Chain R1（真机，可用）**：RPC overflow → B8 → read/zero write → leak/control。
 - **Chain R2（真机，未闭合）**：RPC overflow → B8 → RM read → object pointer → RM trigger → 05B26 → dtor。缺口：非零写、U-mode 可达 trigger、对象指针。
 - **Chain Q1（QEMU，受控）**：t0=23 create → t0=4 release → 0x93005B26 → dtor → S-mode。仅 E3；B8 不可达内核 gadget。
-- **Chain F1（FSP，E0）**：malformed NVDM → runtime DoS；PRC write → flash persistence。不是提权链。
+- **Chain F1（FSP，E0/E6）**：malformed NVDM → runtime DoS；PRC write → 跨状态域变化。早期“确定 flash persistence”归因已降级；不是提权链。
 - **Chain T1（TOCTOU，部分）**：GSP ELF read window；execution unproven；FMC 无窗口。
 
 ---
@@ -398,10 +398,11 @@ make test-lab-t017
 
 ### 7.3 PRC / MNOC / EMEM
 
-- 47 个 PRC knob 完整地图；PRC 写入可 flash 持久化（设计如此）。
+- 47 个 PRC knob 地图及真实写路径已恢复；曾观察到跨驱动周期/reset-domain 状态，但物理 flash/InfoROM 存储机制未证明，早期“固定毒记录”说法已降级。
 - MNOC port 0 协议完整闭合，并在脏卡上验证通过；旧“硬件级来源验证”结论错误。
 - EMEM 命令队列：`QUEUE_HEAD` 是 FSP 读区间起点且宿主可写；`QUEUE_TAIL` 为 dword 单位；单包驻留；PSEC 块 `0x840000–0x843fff` 同型。
-- FSP_RUN v6 为 AES-GCM 加密（熵 7.999/字节，密钥芯片内锚定），本地与公开世界均无明文。
+- MODS 570/FieldDiag 580 的 host helper 证明 AES-256-GCM consumer ABI（32B caller key、12B IV、16B tag、空 AAD）；没有建立它到目标 `FSP_RUN` 或片内 KDF/root producer 的数据流。
+- 本地 58 条有效 `FSP_RUN` 记录仅形成 6 个唯一 GB202 对象；公开 MODS/FieldDiag/FuseRework 与网盘搜索仍未取得明文或关键四件套。
 
 ### 7.4 TOCTOU（三个对象，禁止互套）
 
@@ -690,15 +691,20 @@ nvidia-smi
 | FSP-02 | 但“hash 全 0xFF + 改固件 1 字节”会被 FSP 拒绝（`✗ FSP 拒绝`），说明固件本体仍被校验。 | E0 |
 | FSP-03 | WPR 元数据层的签名验证是真实的；COT 层不是。两层必须分开表述。 | E0 |
 | FSP-04 | COT（NVDM type 0x14）只在 FSP boot-phase dispatcher 有 handler；runtime dispatcher 静默丢弃，无响应、无错误、通道不受影响。 | E0 |
-| FSP-05 | 47 个 PRC knob 完整地图；PRC 写入可 flash 持久化（设计如此）。 | E0 |
+| FSP-05 | 47 个 PRC knob 地图及真实写路径已恢复；跨状态域现象存在，但 flash/InfoROM 存储机制未证明。 | E0/E6 |
 | FSP-06 | MNOC port 0 协议完整闭合，并在“脏卡”上验证通过；旧 B7b 的“硬件级来源验证”结论错误。 | E0 |
 | FSP-07 | 一段畸形 NVDM/传输序列后，FSP runtime 服务（PRC、FWUP、caps、InfoROM、clock boost）持续不可用，且跨完整断电；GSP 启动与计算仍正常。 | E0 |
 | FSP-08 | 该不可用状态的**最小充分触发未知**：序列含多次操作，期间未恢复并复验 FSP 健康。 | E5 |
-| FSP-09 | FSP_RUN v6 为 AES-GCM 加密（熵 7.999/字节，密钥芯片内锚定），本地与公开世界均无明文；公开研究为空白。 | E2/E6 |
+| FSP-09 | host software decrypt consumer 为 AES-256-GCM：32B caller key、12B IV、16B tag、空 AAD；目标 key/KDF/root 与明文未知。 | E4 |
 | FSP-10 | EMEM 命令队列寄存器协议：`QUEUE_HEAD` 是 FSP 读区间起点且宿主可写，`QUEUE_TAIL` 为 dword 单位，单包驻留；PSEC 块 `0x840000-0x843fff` 同型。 | E2 |
 | FSP-11 | GSP 侧 FSP 传输栈：EMEM 后端 `0x15015c8/0x14fb74c`、MNOC aperture `0x150a3b0`（base `0x8f1e00`、span `0x200`）、方法槽 `+0x158/+0x1c8/+0x1d0`。 | E2 |
-| FSP-12 | FSP 黑盒异常清单共 32 项：永久损伤 7、系统级死锁 4、临时 DoS 6、信息泄露 3、设计缺陷 3、行为异常 9。 | E0 |
+| FSP-12 | FSP 黑盒异常清单共 32 项：永久损伤 7、系统级死锁 4、临时 DoS 6、信息泄露 3、设计缺陷 3、行为异常 9；因果归属须应用 C-09/C-19/C-20。 | E0 |
 | FSP-13 | 消息层：PRC read/write 正常；NVLink mask 全 1 被接受且无范围校验（GB202 无 NVLink，无实际影响）。 | E0 |
+| FSP-14 | 58 条有效 `FSP_RUN` 记录形成 6 个唯一 GB202 对象；普通 RTX 5090 零售 BIOS 高度复用。 | E4 |
+| FSP-15 | FuseRework 需要 main binary 与 48/384/384B sidecars；`0x0f` 仅回 4-byte ACK，不是明文导出。 | E4 |
+| FSP-16 | 公开 FieldDiag/MODS 580 没有目标 envelope、四件套或 bulk decrypt-to-host。 | E4 |
+| FSP-17 | 公开论坛、归档和网盘搜索未找到可验证目标工件。 | E5 |
+| FSP-18 | FSP 明文专项最终状态：Stopped without plaintext。 | E4/E5 |
 | TOC-01 | FMC 方向：验证期写入 → `0xFFFF` 干净拒绝；加载期（10–45ms）写入 → FSP 锁死（`MBOX=badf4100`）；加载完成后写入 → 无效。**没有可用于 FMC 的漏检窗口。** | E0 |
 | TOC-02 | GSP ELF（27MB）在 `sendAndRead` 返回后 100ms 仍被 FMC 读取：写 ELF 起始 4 字节即致 GSP 挂死。**读到 ≠ 执行。** | E0 |
 | TOC-03 | GSP 方向 FMC `fw[0x10000]` 写入到达物理内存（`d564→0902`，clflush+mfence 后），且 GPU 仍工作。 | E0 |

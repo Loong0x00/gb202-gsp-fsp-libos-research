@@ -1,7 +1,7 @@
 # CORRECTIONS — 旧文档更正表
 
-> 更新：2026-10-18。
-> **硬约束**：本表只记录更正，**不修改任何原文件**。原件仍在原路径；本表是唯一“补丁层”。
+> 更新：2026-10-27。
+> **更正策略**：历史文档原则上保留并由本表提供补丁层；对会直接误导密码学归因或硬件安全判断的严重错误，公开副本可在原文顶部加更正横幅并改写错误段落，但必须同时在本表登记。私有原始工作副本不因此改写。
 > 每条 = 旧文档:行 → 旧表述 → 更正后表述 → 依据 → 状态。
 > 状态：`已裁决`（有后续证据）/ `部分裁决`（版本已分清、残留未决）/ `未决`（进 `OPEN_QUESTIONS.md`）。
 
@@ -25,6 +25,11 @@
 | C-16 | `HANDOFF_K31.md:3-6` | “K3-1 在裸机上 crash 在 0x1b8ffbc，VM 环境需要重建” | 页首自注已更正：① 任意读/写原语已于 9-26 在 VM 实测打通；② `0x1b8ffbc` 已有静态解释（有效通道集合变空），裸机 K=33 失败是回调路径未触发。结论以 `K31_FINAL_REPORT.md` 为准。 | `HANDOFF_K31.md:7-10`（自注）；`K31_FINAL_REPORT.md:5-9` | 已裁决 |
 | C-18 | `COT_INJECTION_FINDINGS.md:5-10` | 不同 `gspFmcSysmemOffset` 得到不同响应，推断 FSP 会按内容处理 COT | COT（NVDM 0x14）只在 FSP **boot-phase** dispatcher 有 handler；runtime dispatcher **静默丢弃**（无响应、无错误、通道不受影响）。初版观察不能作为 runtime 行为。 | `COT_FINAL_VERDICT.md:8,14-15`；`FINDINGS.md` FSP-04 | 已裁决 |
 | C-17 | `FSP_LINE_COMPLETE_20260926.md:1-10` | 早期“FSP 线完整记录/结论速览” | 作为历史总览保留，但其中的 FSP 结论应替换为 `FSP_ULTIMATE_FINDINGS.md` 与 `PSIRT_DRAFT_1` 的措辞。 | `FSP_ULTIMATE_FINDINGS.md:7-16`；`PSIRT_DRAFT_1_GB202_FSP_RUNTIME_DOS.md:5` | 已裁决 |
+| C-19 | `SESSION_20261025_NIGHT_FULL_REPORT.md:3-6,202-237` | “GSP BADF 不可恢复、需 SPI 编程器”；把整晚状态归因于永久 FSP/InfoROM/fuse 锁 | 最初 heartbeat/RPC/watchdog 故障和若干复位后失败确实发生；但 00:11 重启后授权服务已成功读取 GPU，最后阶段又混入缺失 `/dev/nvidia0`、cgroup 权限和错误绑定检查。不能推出永久 fuse/InfoROM 锁或 SPI 必然修复。 | `GSP_GLM53_CONTEXT_AUDIT_20261026.md`；`GSP_RECOVERY_20261026.md` | 已裁决 |
+| C-20 | `FSP_INFOROM_PERSISTENCE_20260928.md:13-34`；`FINAL_STATUS_20260928.md:21,42-52` | PRC 状态已被证明写入每槽 InfoROM flash，并形成固定不可逆毒记录 | 确实观察到跨驱动周期、reset domain 乃至部分冷启动复现的状态；但物理 flash 记录、位置和唯一触发未被证明。SBR 恢复、槽位取证和后续复核要求把“固定 flash poison record”降级为假说。 | `SBR_RECOVERY_DISCOVERY.md:61-75`；`PSIRT_DRAFT_2_GB202_WPR2_PERSISTENT_STATE.md:1-13,53-61,267-279`；`ORIGINAL_BIOS_SLOT_FORENSICS_20261013.md:1-25` | 已裁决（存储机制仍未决） |
+| C-21 | `AUTHORITATIVE_STATUS.md` 旧版 FSP-ENCRYPT；早期明文搜索笔记 | 仅写“AES-GCM/芯片内密钥”，或把 host software decrypt 与目标 `FSP_RUN` 解密链混为一谈 | MODS 570/FieldDiag 580 的 host helper 证明的是 **AES-256-GCM consumer ABI**：32B caller-supplied key、12B IV、16B tag、空 AAD。没有建立该 helper 到目标 `FSP_RUN`、片内 KDF/root producer 或明文导出的数据流。 | `fsp_plaintext_audit_20261027/V6_CRYPTO_KDF_CONSUMER_AUDIT.md`；`fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md` | 已裁决 |
+| C-22 | `README.md` 旧 2026-10-25/26 更新；`SESSION_20261025_NIGHT_FULL_REPORT.md` 的 Dell 段 | Dell updater `0xad4933` 是 FSP AES-CMAC/DMOVERAES128 verifier | `0xad4933` 实际是 OpenSSL `bsaes_xts_decrypt` 路径；没有证明它是 FSP verifier。 | `fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md`；`vbios_diff/dell_8d_payload/DELL_VERIFIER_RE_20261026.md` | 已裁决 |
+| C-23 | `README.md` 旧 2026-10-25/26 更新；`parallel/fsp_attack_20261026/FSP_PLAINTEXT_ASSAULT_20261026.md` | 约 `1.2×10^12` 候选全阴性等于 key space exhaustion | 后续审计发现旧 CUDA 搜索器的首块过滤会漏真 key，且主要模型包含 AES-128/错误布局/有限 AAD 假设；该运行只能记录为“未命中”，不能证明空间穷尽。当前验收标准是 AES-256-GCM tag。 | `fsp_plaintext_audit_20261027/REPORT.md`；`fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md` | 已裁决 |
 
 ## 1. 更正后的“标准表述”（可直接复制）
 
@@ -34,6 +39,8 @@
 - **FSP runtime DoS**：畸形序列后 runtime 服务持续不可用（E0）；最小充分触发未知（E5）。
 - **MCLK**：18000MHz/+3999 通过（E0）；18001MHz/+4000 失败于 completion wait 超时（E0），marker `0x25728`，不是 `0x256c8`。
 - **C1/C2**：仅在旧 Python 模拟器 + 真实 GB20X 内核镜像上闭合（E4），真机未验证。
+- **FSP v6 密码模型**：host software consumer 为 AES-256-GCM、32B caller key、12B IV、16B tag、空 AAD（E4）；data key、KDF/root 和目标明文仍未知。
+- **硬件状态**：最初 GSP/FSP 故障真实存在，但“永久 fuse/InfoROM 锁、必须 SPI”不成立；恢复记录必须按阶段读取。当前决定是不再对现有卡做真机固件实验。
 
 ## 2. 未写入本表的“自我更正”
 

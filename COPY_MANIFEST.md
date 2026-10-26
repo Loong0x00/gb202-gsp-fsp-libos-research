@@ -28,6 +28,18 @@ Created: 2026-10-18
 - raw `.rgba*`, `.pkl`, old one-off experiment folders
 - Ghidra `.rep` internals are included only as part of `ghidra_static/`; do not scan them as text
 
+## 2026-10-27 public-update addendum
+
+The GitHub publication later added documentation-only updates that were not part of the 2026-10-18 clean-copy snapshot:
+
+- `BLACKWELL_UNBOUNDED_COPY_SURFACE_20261025.md`
+- `SESSION_20261025_NIGHT_FULL_REPORT.md` plus its later recovery/context corrections
+- `fsp_plaintext_audit_20261027/` (15 final offline crypto/FieldDiag/FuseRework/web-hunt reports)
+- `HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md`
+- `vm_mods_lab/MODS570215_DIAGNOSTIC_SUMMARY_20260825.md`
+
+No MODS executable, firmware binary, Ghidra project, support-account record, browser data or private NVIDIA case attachment was added with this update.
+
 ## Note
 
 This copy is for document classification / dedup / canonicalization only.

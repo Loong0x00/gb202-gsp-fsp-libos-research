@@ -116,15 +116,20 @@
 | FSP-02 | 但“hash 全 0xFF + 改固件 1 字节”会被 FSP 拒绝（`✗ FSP 拒绝`），说明固件本体仍被校验。 | E0 | `FSP_TRUST_CHAIN_MODEL.md:10-11` | 2026-09-29 | 高 |
 | FSP-03 | WPR 元数据层的签名验证是真实的；COT 层不是。两层必须分开表述。 | E0 | `FSP_ULTIMATE_FINDINGS.md:16` | 2026-09-29 | 高 |
 | FSP-04 | COT（NVDM type 0x14）只在 FSP boot-phase dispatcher 有 handler；runtime dispatcher 静默丢弃，无响应、无错误、通道不受影响。 | E0 | `COT_FINAL_VERDICT.md:8,14-15` | 2026-09-29 | 高 |
-| FSP-05 | 47 个 PRC knob 完整地图；PRC 写入可 flash 持久化（设计如此）。 | E0 | `PRC_KNOB_MAP.md:7,32` | 2026-09-28 | 高 |
+| FSP-05 | 47 个 PRC knob 地图及真实写路径已恢复；曾观察到跨驱动周期/reset-domain 状态，但“必然写入 InfoROM flash/固定毒记录”的早期归因已降级。 | E0/E6 | `PRC_KNOB_MAP.md:7,32`；`SBR_RECOVERY_DISCOVERY.md:61-75`；`CORRECTIONS.md` C-20 | 2026-10-27 | 高（现象）；存储机制未知 |
 | FSP-06 | MNOC port 0 协议完整闭合，并在“脏卡”上验证通过；旧 B7b 的“硬件级来源验证”结论错误。 | E0 | `MNOC_PORT0_PROTOCOL.md:4,10-15` | 2026-09-30 | 中 |
 | FSP-07 | 一段畸形 NVDM/传输序列后，FSP runtime 服务（PRC、FWUP、caps、InfoROM、clock boost）持续不可用，且跨完整断电；GSP 启动与计算仍正常。 | E0 | `PSIRT_DRAFT_1_GB202_FSP_RUNTIME_DOS.md:34-45` | 2026-10-13 | 高（现象） |
 | FSP-08 | 该不可用状态的**最小充分触发未知**：序列含多次操作，期间未恢复并复验 FSP 健康。 | E5 | `PSIRT_DRAFT_1_GB202_FSP_RUNTIME_DOS.md:5` | 2026-10-13 | 高（作为“未知”） |
-| FSP-09 | FSP_RUN v6 为 AES-GCM 加密（熵 7.999/字节，密钥芯片内锚定），本地与公开世界均无明文；公开研究为空白。 | E2/E6 | `fsp_ace_static_20260927/SUMMARY.md:13,20,74` | 2026-09-27 | 高 |
+| FSP-09 | MODS 570/FieldDiag 580 的 host software decrypt consumer 为 AES-256-GCM：32B caller key、12B IV、16B tag、空 AAD。没有建立它到目标 `FSP_RUN`、片内 KDF/root producer 或明文导出的数据流。 | E4 | `fsp_plaintext_audit_20261027/V6_CRYPTO_KDF_CONSUMER_AUDIT.md` | 2026-10-27 | 高（consumer ABI）；key/KDF 未知 |
 | FSP-10 | EMEM 命令队列寄存器协议：`QUEUE_HEAD` 是 FSP 读区间起点且宿主可写，`QUEUE_TAIL` 为 dword 单位，单包驻留；PSEC 块 `0x840000-0x843fff` 同型。 | E2 | `fsp_ace_static_20260927/notes/FSP_SURFACE_REVISIONS.md:7-24` | 2026-09-27 | 高 |
 | FSP-11 | GSP 侧 FSP 传输栈：EMEM 后端 `0x15015c8/0x14fb74c`、MNOC aperture `0x150a3b0`（base `0x8f1e00`、span `0x200`）、方法槽 `+0x158/+0x1c8/+0x1d0`。 | E2 | `fsp_ace_static_20260927/SUMMARY.md:30` | 2026-09-27 | 高 |
 | FSP-12 | FSP 黑盒异常清单共 32 项：永久损伤 7、系统级死锁 4、临时 DoS 6、信息泄露 3、设计缺陷 3、行为异常 9。 | E0 | `FSP_BUG_INVENTORY.md:4` | 2026-10-02 | 中（因果表述须按 C-09 降级） |
 | FSP-13 | 消息层：PRC read/write 正常；NVLink mask 全 1 被接受且无范围校验（GB202 无 NVLink，无实际影响）。 | E0 | `FSP_MSG_LAYER_AUDIT.md:7-8` | 2026-09-28 | 高 |
+| FSP-14 | 本地盘点得到 58 条有效 `FSP_RUN` 记录、6 个唯一 GB202 payload/descriptor；23 份普通 RTX 5090 VBIOS 复用同一对象，继续收集普通零售 BIOS 信息增益很低。 | E4 | `fsp_plaintext_audit_20261027/REPORT.md`；`fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md` | 2026-10-27 | 高 |
+| FSP-15 | FuseRework 路线需要 `fuserework.bin` 及 48/384/384B 三个 RSA-3072 sidecar；command `0x0f` 的响应仅为 4-byte ACK，不是 plaintext export。 | E4 | `fsp_plaintext_audit_20261027/FUSEREWORK_ABI.md`；`fsp_plaintext_audit_20261027/FSP_SENDER_CALLSITE_AUDIT.md` | 2026-10-27 | 高 |
+| FSP-16 | 公开 DGX Spark FieldDiag/MODS 580 包没有目标 `FSP_RUN` envelope、四件套或 bulk decrypt-to-host；29 个 type-4 GFW 可归入标准 bindata archive，不应误标为 FuseRework。 | E4 | `fsp_plaintext_audit_20261027/DGX_SPARK_FIELDDIAG_AUDIT.md`；`fsp_plaintext_audit_20261027/FIELDDIAG580_PRIVATE_GFW_ATTRIBUTION.md` | 2026-10-27 | 高 |
+| FSP-17 | 中英俄论坛、公共代码/归档索引及网盘搜索没有找到可验证的 MODS 580/x86 FieldDiag/FuseRework 四件套。22.38GB Meister V6 镜像的当前 Btrfs 文件树经远程元数据取证确认只含已知 540/570 包。 | E5 | `fsp_plaintext_audit_20261027/WEB_HUNT_*.md` | 2026-10-27 | 中高（公开范围） |
+| FSP-18 | 本轮专项最终状态为 **Stopped without plaintext**；现有材料没有暴露正确 data key、片内 KDF/root 或合法 plaintext-export 路径。 | E4/E5 | `fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md` | 2026-10-27 | 高 |
 
 > FSP-07 与 FSP-08 必须成对引用：前者是现象（E0），后者否认了“单条请求即永久 DoS”的因果（E5 记录）。
 
@@ -185,6 +190,8 @@
 | REC-03 | Power Cycle ≠ SBR：SBR 清除特定 reset domain 并让 FSP 走另一条初始化路径；断电不一定达到同样效果。 | E0 | `SBR_RECOVERY_DISCOVERY.md:1,44` | 2026-09-28 | 中 |
 | REC-04 | “一次操作后两个 BIOS 槽都无法启动”**不是**两颗 SPI flash 同时永久损坏：共享 GPU/FSP 状态可让两槽同时表现失败。 | E5 | `DUAL_BIOS_CROSS_SLOT_FORENSICS_20261012.md:8,102` | 2026-10-12 | 中 |
 | REC-05 | 原版槽最后一个无争议健康点是 2026-09-28T12:32Z；后续失败不能唯一归因于单槽或单次 COT 请求。 | E5 | `ORIGINAL_BIOS_SLOT_FORENSICS_20261013.md:10,322` | 2026-10-13 | 中 |
+| REC-06 | 10-25/26 最初的 heartbeat/RPC/watchdog 故障和部分复位后失败是真实的；但 00:11 后授权服务曾成功读 GPU，最后阶段还混入缺失设备节点、cgroup 权限和错误绑定检查。不能据此推出永久 fuse/InfoROM 锁。 | E5/E0 | `GSP_GLM53_CONTEXT_AUDIT_20261026.md`；`GSP_RECOVERY_20261026.md` | 2026-10-26 | 高 |
+| REC-07 | 异常 FSP 状态下的 bind/rescan/SBR 曾导致掉总线、BAR0 丢失及不可杀的内核 R/D 状态；现有 RTX 5090 的真机固件实验已明确停止。 | E0/综合 | `HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md` | 2026-10-27 | 高 |
 
 ---
 
