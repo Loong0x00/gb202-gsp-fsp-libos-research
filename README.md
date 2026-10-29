@@ -14,7 +14,7 @@
 
 # English
 
-Personal reverse-engineering research notes on the NVIDIA RTX 5090 (GB202) GPU firmware stack — **377 tracked files, including 318 Markdown research documents and self-authored tooling source code**. Topics: GSP (RISC-V security processor) firmware RE, LibOS kernel emulation, FSP chain-of-trust analysis, plus clock/voltage/power governance, L2/SM/ISA, fan control and other side quests.
+Personal reverse-engineering research notes on the NVIDIA RTX 5090 (GB202) GPU firmware stack — **14,407 tracked files, including 14,347 Markdown research documents and self-authored tooling source code**. Topics: GSP (RISC-V security processor) firmware RE, LibOS kernel emulation, FSP chain-of-trust analysis, plus clock/voltage/power governance, L2/SM/ISA, fan control and other side quests.
 
 Methods: Ghidra static disassembly + a self-built QEMU emulation lab + experiments on a physical RTX 5090 (bare metal and VFIO passthrough).
 
@@ -42,6 +42,15 @@ Methods: Ghidra static disassembly + a self-built QEMU emulation lab + experimen
 - Public English/Chinese/Russian forum, archive and cloud-drive searches found no verifiable target bundle. A 22.38 GB community image was inventoried remotely through 7z/Btrfs metadata without downloading it in full; its current tree contains only known 540/570 packages.
 - Final status: [`fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md`](fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md).
 - Live hardware experimentation is explicitly stopped because malformed messages, broad MMIO reads and recovery operations have produced FSP/GSP/WPR2/PCIe/kernel failure chains. See [`HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md`](HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md).
+
+### 2026-10-29 update: 87-version corpus, NVDM inventory and crypto-path boundary
+
+- Collected and byte-verified all **87/87** GB202 GSP outer images and main RV64 inner ELFs. The corpus is intentionally not republished here.
+- Recovered **1,456 direct GSP→FSP NVDM call sites** across the corpus. Found six uses of undocumented type `0x24`, first seen in 610.43.02, with 4-byte lifecycle commands and 17-byte status responses rather than address or plaintext output.
+- ROMREAD (`0x1a`) has no direct sender call and its candidate getter is not installed; other channels such as `0x21` are used indirectly through vtables, so public host APIs alone are not a complete inventory.
+- Traced NVCBA2 / MODS SecureCopy from method streams to a software AES-256-GCM branch. It is a generic secure-copy/memory-compare framework with a 32-byte key at `object+0x44`, not a demonstrated `FSP_RUN` consumer or KDF source.
+- Current boundary: no BootROM/FSP first-stage implementation, real KDF input/root key, engineering/debug plaintext bundle, or supported decryption oracle was found. This is a material-evidence limitation, not a claim that such consumers cannot exist elsewhere.
+- New reports live in [`gsp-target-20261029/`](gsp-target-20261029/): `FSP_NVDM_INVENTORY_20261029.md`, `SECOND_PASS_CRYPTO_AND_DYNAMIC.md`, and `THIRD_PASS_MODS_SECURECOPY.md`. The 16.1 GB batch decompilation corpus and Ghidra projects are excluded from publication.
 
 Side quests: runtime MCLK/XBAR control, VF curve governance, power budget, fan routing, L2 slices, SM120 cache/register ISA, dual-BIOS-slot forensics, and more.
 
@@ -97,7 +106,7 @@ Text: [CC BY-NC-SA 4.0](LICENSE), except quoted third-party material. The QEMU p
 
 # 中文部分
 
-个人对 NVIDIA RTX 5090(GB202)GPU 固件层的逆向工程研究资料库，共 **377 个受 Git 跟踪的文件，其中 318 份为 Markdown 研究文档**，另含自研配套源码。内容涵盖 GSP(RISC-V 安全处理器)固件逆向、LibOS 内核模拟执行、FSP 信任链与明文获取审计，以及时钟/电压/功耗治理、L2/SM/ISA、风扇控制等周边逆向成果。
+个人对 NVIDIA RTX 5090(GB202)GPU 固件层的逆向工程研究资料库，共 **14,407 个受 Git 跟踪的文件，其中 14,347 份为 Markdown 研究文档**，另含自研配套源码。内容涵盖 GSP(RISC-V 安全处理器)固件逆向、LibOS 内核模拟执行、FSP 信任链与明文获取审计，以及时钟/电压/功耗治理、L2/SM/ISA、风扇控制等周边逆向成果。
 
 研究方法:Ghidra 静态反汇编 + QEMU 自建模拟环境 + 物理 RTX 5090 真机/VFIO 直通实验。
 
@@ -125,6 +134,15 @@ Text: [CC BY-NC-SA 4.0](LICENSE), except quoted third-party material. The QEMU p
 - 中英俄论坛、公开归档及网盘搜索没有找到可验证目标包。一个 22.38GB 社区镜像通过 7z/Btrfs 元数据远程列出当前文件树，无需完整下载，确认只含已知 540/570 包。
 - 最终状态：[`fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md`](fsp_plaintext_audit_20261027/FINAL_STATUS_AND_RESUME_GUIDE_20261027.md)。
 - 因畸形消息、广泛 MMIO 读取及恢复操作曾形成 FSP/GSP/WPR2/PCIe/内核级故障链，明确停止真机路线。风险清单见 [`HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md`](HARDWARE_DO_NOT_TOUCH_RISK_SUMMARY_20261027.md)。
+
+### 2026-10-29 更新：87 版固件清单、NVDM 通信面与 crypto 路径边界
+
+- 完成 **87/87** 个 GB202 GSP outer 与主 RV64 inner ELF 的收集及逐字节校验；固件本体不纳入仓库。
+- 恢复 **1,456 个 GSP→FSP NVDM 直接调用点**。发现 6 处未公开 `0x24` 类型，最早见 610.43.02；其形态为 4 字节生命周期命令和 17 字节状态响应，不含地址或明文输出。
+- `ROMREAD(0x1a)` 没有直接 sender 调用，候选 getter 未安装；`0x21` 等通道则经 vtable 间接使用，因此公开 host API 不能代表完整通信面。
+- 追通 NVCBA2 / MODS SecureCopy 方法流到软件 AES-256-GCM 分支。它是通用 secure-copy/内存比较框架，`object+0x44` 为 32 字节 key 字段，但尚不是已证实的 `FSP_RUN` 消费者或 KDF 来源。
+- 当前证据边界：没有 BootROM/FSP 第一阶段实现、真实 KDF 输入/root key、工程/debug 明文包或受支持的解密 oracle。这是材料限制，不排除其他消费者存在。
+- 新报告位于 [`gsp-target-20261029/`](gsp-target-20261029/)：`FSP_NVDM_INVENTORY_20261029.md`、`SECOND_PASS_CRYPTO_AND_DYNAMIC.md`、`THIRD_PASS_MODS_SECURECOPY.md`。16.1 GB 批量反编译结果与 Ghidra 项目不发布。
 
 另有：时钟/MCLK/XBAR 运行时控制、VF 曲线治理、功耗预算、风扇路由、L2 切片、SM120 cache/寄存器 ISA、VBIOS 双槽取证等大量支线文档。
 

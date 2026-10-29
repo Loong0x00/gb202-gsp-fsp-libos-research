@@ -1,0 +1,1 @@
+The redundant single-process replay was stopped with SIGTERM only after independent 8-worker blocks49–55 verification passed (`../nr-original-ptx-49-55-parallel-main-20260914/RESULT.json`). Its existing PASS39–48 log is preserved; no artifact was overwritten.

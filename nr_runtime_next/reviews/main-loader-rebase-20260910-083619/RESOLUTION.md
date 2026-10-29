@@ -1,0 +1,1 @@
+Combined WuWa + loader/factory host sources/dependencies; retain transitive FormatBridge dependency refresh and shader tests; CPU-only target has no Wine; keep WuWa lease polling and new worker instrumentation; combined pc4 build ID. Main source remains untouched pending validation.

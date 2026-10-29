@@ -1,0 +1,2 @@
+Raw planes removed on explicit user request. This run compared multipass NR, not the requested single-pass NR-before-SR versus NR-after-SR. Original metadata, metrics, previews and hash manifests remain as historical evidence; they do not imply raw payloads still exist.
+Cleanup receipt: /home/user/rt_5090_project/cp2077_nr_lab/20260909-071122-multipass-presr/paired-capture/RAW_CLEANUP_20260909.json

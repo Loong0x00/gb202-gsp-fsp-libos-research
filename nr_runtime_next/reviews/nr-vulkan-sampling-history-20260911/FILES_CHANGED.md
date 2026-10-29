@@ -1,0 +1,44 @@
+# Files changed
+
+All files created in this review; native DLL and prior reviews unchanged.
+- `reviews/nr-vulkan-sampling-history-20260911/FILES_CHANGED.md` — exact file inventory.
+- `reviews/nr-vulkan-sampling-history-20260911/REPORT.md` — sampler and history findings, address proof and limits.
+- `reviews/nr-vulkan-sampling-history-20260911/SHA256SUMS` — artifact hashes.
+- `reviews/nr-vulkan-sampling-history-20260911/allocation-common-dispatch.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/allocation-common-start.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/allocation-description.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/allocation-wrapper.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/collect.py` — CPU-only collection, reference or tests.
+- `reviews/nr-vulkan-sampling-history-20260911/copy-descriptors.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/copy-dispatch.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/copy-kernel-registration.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/evaluation-end-routing.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/evaluation-flags.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/evaluation-reset.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/evidence.json` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/external-sources.json` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/format-lookup.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/format-rgba16f.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/history-allocation.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/layout_test` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/layout_test.c` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/loader-handles.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/loader-image.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/loader-imageview.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/loader-sampler.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/objdump-sampler.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/output-key.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/postprocess-dest.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/postprocess-dispatch.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/resource-query.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/resource_reference.py` — CPU-only collection, reference or tests.
+- `reviews/nr-vulkan-sampling-history-20260911/sampled-view.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/sampler-creation.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/sampler-init-prologue.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/static.py` — CPU-only collection, reference or tests.
+- `reviews/nr-vulkan-sampling-history-20260911/storage-view.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/test_resource.py` — CPU-only collection, reference or tests.
+- `reviews/nr-vulkan-sampling-history-20260911/verification.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/vulkan-image-create.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/vulkan-spec-excerpt.txt` — bounded static evidence / verification artifact.
+- `reviews/nr-vulkan-sampling-history-20260911/wrapper-history.txt` — bounded static evidence / verification artifact.

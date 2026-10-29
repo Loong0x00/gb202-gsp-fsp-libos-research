@@ -1,0 +1,60 @@
+# Exact integration-patch source preconditions
+
+`integration.patch` is rebased on the current pc3b main native tree, including
+host build ID `d5native-pc3b-verified-effective-20260910` and the
+`d5n::verified_effective_passes` publication rule. It is intended to be applied
+from the project root with `patch -p1`. This worker did not edit `native/`.
+Before applying, all six modified preimages must match exactly:
+
+```text
+74f005e622d66ef2f009b59fa7b96764ceaf5abfe956c88acfea0ac2a6b5bc54  native/Makefile
+f9550629202be028d82e07fb52da4faa8b7b1282de0e80aa7a9c38ab7edd1403  native/host/host_internal.h
+f1688bcb3abce10e850b0705c8d7f0560e2e03997b58b339d19fe8d50594df8e  native/host/host_state.cpp
+0e814781748b991af741d0f13eea6bb9570549a842de69141477aaff505cc68f  native/host/pipeline.cpp
+627e5517e588eda73523eabd655330caa8df479ba48c2187e3997afd7325f077  native/host/queue_hooks.cpp
+2bb3770eb3098118de22c625010fa46ad6b84c15b39d8d41b74a2464d0d4cdb3  native/host/telemetry.cpp
+```
+
+The five added native paths must not already exist:
+
+```text
+native/host/format_tail_policy.h
+native/host/wuwa_budget_policy.h
+native/host/wuwa_ingress.cpp
+native/host/wuwa_ingress.h
+native/host/wuwa_lease_protocol.h
+```
+
+The linked existing source dependencies used by this candidate were:
+
+```text
+9b518635fe0fa9a0161930c1c895c3f2c64906cb4bfe01ff8c5a9970547c3866  native/common/control.h
+ea1e7898a817c2246f408c455e59a839fc7f82af08d9cba43d19a3918cad9f07  native/include/native_adapter.h
+97ac0b3023f3c6ee8f7a7b2f3a2ddd99192f1ad4fdc6f92a96d715b0ff5b5e6e  native/include/native_runtime.h
+b3745ccc8068b196f4855f0bc91a0d7a3f6eac16ac013a916f36fae767f137c8  protocol/pipeline_v1.h
+fff51ce8a2467296fd9660e35cd811cc598d457301a0e5ae08bcd3bfad82ad4e  protocol/PIPELINE_V1.md
+219c93b1d9d9887bfe1652fefd7f3c8b29fc36f27782310e3b8987064934b78a  adapters/common/frame_contract.h
+7e428d96a4ca778a0ce63b246d349155528df9fb2f3a23a7e5e4b75db9f175c0  adapters/common/ngx_evidence.h
+ba9563ba0d007d2439f8dd2ccecdf0fa58fea59f39bc47ec24f27881130c9014  adapters/common/policy.h
+585eff424a713540f031c25361c69c9363c075ed502c949ec2f31f107313fb40  adapters/common/policy.cpp
+ec5eb6db263cdfb4a522737eeb27a4a23f82c629a35a2dffc64c211d037efa8e  adapters/common/native_contract_bridge.h
+79d9e0a6978e6134363cd3d0a1636958d1784c131e0f2dc36fb1cfdbd9181b57  adapters/common/native_contract_bridge.cpp
+3aeefebc293fa9952036ed2d5f6933d2a523c2b7bda25d613f297c7c9c67b43b  adapters/wuthering_waves/adapter.h
+69e09228102ba518fa7bc00ecab6238f24c083d9313bc14ac49cc60a014406ac  adapters/wuthering_waves/adapter.cpp
+5c833a38a6665519730285a41c163945eabbf4a81cad0ad26cc412c79880c3b3  adapters/wuthering_waves/phase_gate.h
+1c1140497962becd99ff09291bccf004cae36ff82652c3105c75ae9a1c839864  adapters/wuthering_waves/phase_gate.cpp
+b5524f3e576e9b33097fa9fb82945340e0d8d17f0f5ade1bb808b876ad52e429  adapters/format_bridge/bridge.h
+40c15c6b2b618309d5fd1c0728a9ef923096ded1bda1ac4fb956389c230ea006  adapters/format_bridge/bridge.cpp
+b86bc47538d8f1f8546c2e3e52ea61b2131d7a3ad05fe31dd36c8d61afde9966  adapters/format_bridge/format_plan.h
+b2503c5287e83f1d1cbb87244246d4597a67839212f755408d08e596874bc3ad  adapters/format_bridge/format_plan.cpp
+9319f223c7df7efcdced17314062acb7ee0df7646aed7568b46c37da88346a9a  adapters/format_bridge/shaders/normalize.hlsl
+2fedee408dab728e7f93426b7c94c5229e1e4e95d5f5344b9c2c20a2b79bf033  adapters/format_bridge/shaders/normalize_hlsl.inc
+931709e75cc3b2c1419659a60c01ba153e5e67997b6bf141c03c91f962e10c3d  adapters/format_bridge/shaders/normalize_dxbc.inc
+787b0873591e8626a5da8f2391958bbb25449d7d65e88658950b7ac4201425e2  adapters/format_bridge/GPU_RESULTS_20260910.md
+25def10412aa841324e6e66d500d1c0c8f2762c5c57b5d1e802e3f9c0c11179e  adapters/format_bridge/build/libnr_format_bridge.a
+```
+
+`ARTIFACT_SHA256SUMS` repeats the exact static-library relink input. The native
+adapter/runtime ABI sizes remain unchanged. Runtime source is copied unchanged
+from current main; the patch does not edit `native/runtime/` or
+`native/include/`.

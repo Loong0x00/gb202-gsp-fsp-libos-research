@@ -1,0 +1,3 @@
+Concrete fact: OUTVIEW's final fragments `%r4067..%r4082` are converted by `cvt.rn.satfinite.e4m3x2.f16x2` into `%rs17..%rs32` before guarded `st.global.v2.b16` stores; its 5,301-instruction source reads output-view extents at parameter offsets +80/+84.
+
+Completed source-only OUTVIEW65 review. REPORT.md records the bounded static reconstruction, including the actual two-hidden-group FFN loop, FP8/half checkpoints, normalization/reduction/quantization order, final register-to-byte stores, signed extent guards, and conditional (non-live) host selection. No execution, directory reads, network access, or unapproved inputs used.

@@ -15,15 +15,22 @@
 
 ## 1. 找到的原始会话
 
-主会话（613 条 assistant 消息标记为 `zai-coding-cn / glm-5.3`）和后续会话（157 条同模型 assistant 消息）保存在私有本地 Pi session JSONL 中；公开副本不包含 session UUID 或原始会话文件。
+主会话（613 条 assistant 消息标记为 `zai-coding-cn / glm-5.3`）：
+
+`/home/user/.pi/agent/sessions/--home-user--/2026-10-25T08-48-49-349Z_01a1723f-8ac5-7380-ac03-5aca0cae760d.jsonl`
+
+后续会话（157 条同模型 assistant 消息）：
+
+`/home/user/.pi/agent/sessions/--home-user--/2026-10-25T16-58-42-159Z_01a17400-0a6f-730a-a2b5-87b329ef4170.jsonl`
 
 复核使用用户消息、可见回复、工具命令及工具结果；按主会话最终分支追溯。没有重放其中的硬件操作，没有修改原会话。
 
-证据保存在私有本地取证目录，公开副本仅保留结论和时间线，不发布原始 Pi session、journal 或服务日志：
+证据：
+`/home/user/rt_5090_project/gsp-recovery-20261026-2jdEH6/glm53-context-audit/`
 
-- `incident-visible-context.txt`：故障时段可见记录，保留原 JSONL 行号和 +08 时间；
-- `session-source.sha256`：两份原会话摘要；
-- `kernel-timeline.txt`：四次开机 journal 中的相关错误及源文件行号；
+- `incident-visible-context.txt`：故障时段可见记录，保留原 JSONL 行号和 +08 时间。
+- `session-source.sha256`：两份原会话摘要。
+- `kernel-timeline.txt`：四次开机 journal 中的相关错误及源文件行号。
 - `waterloop-first-reboot.log` / `waterloop-second-reboot.log`：授权测温的独立证据。
 
 ## 2. 时间线（本地 +08）

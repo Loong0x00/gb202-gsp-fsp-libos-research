@@ -1,0 +1,1 @@
+Main CPU suite and system-Wine inert-host test passed; no production capability from fake runtime. Proton-inner headless factory tests failed (DXGI unavailable then timeout); dedicated test prefix stopped. Budget formatter Wine fixture passed. Quality game test still pending.

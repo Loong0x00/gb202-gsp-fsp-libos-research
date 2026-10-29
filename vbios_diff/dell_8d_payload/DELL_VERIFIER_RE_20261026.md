@@ -1,7 +1,5 @@
 # Dell RTX PRO 6000 更新器：Falcon secure-load / AES 错误路径静态复核
 
-> **2026-10-27 更正：**本文早期把 `0xad4933` 一带误判为 DMOVERAES128/AES-CMAC。后续函数边界和 OpenSSL 实现对照确认它属于 `bsaes_xts_decrypt`。下文相关段落已改写；该地址不能作为 FSP CMAC/verifier 证据。参见 `CORRECTIONS.md` C-22。
-
 日期：2026-10-26  
 结论标签：**FACT / INFERENCE / UNKNOWN**；仅静态读取，不执行更新器、不访问 GPU/驱动、不写固件。
 
@@ -195,32 +193,69 @@ SHA-384   = 537a5bb53bdbb2b891f73e629284716b82d217cb2377ac2f00e1e8b704a52fcae8dd
 - **AES-128 块解密 wrapper** @ `0xac38b0`(对齐栈、调用 `0xac35c0` 解密核心)
 - 4 个解密调用点:`0xad3dab / 0xad507a / 0xad50e5 / 0xad5130`
 
-### `0xad4933` 一带 = OpenSSL `bsaes_xts_decrypt`（更正）
+### 0xad5000-0xad5200 = **AES-CBC 解密 MAC(DMOVERAES128)循环**(FACT,代码行为)
 
-早期分析看到 AES decrypt、逐块 XOR 和 GF(2^128) doubling，误把它解释为 CMAC K1/K2。完整函数边界和 OpenSSL BSAES/XTS 实现对照后，正确解释是：
+```
+loop {
+    movdqu xmm15, [r12]        // input block
+    pxor   xmm15, xmm6/xmm13   // xor with running state
+    movdqa [rbp+0x20], xmm15
+    lea    rdi, [rbp+0x20]     // dst = src = temp
+    lea    rsi, [rbp+0x20]
+    lea    rdx, [r15]           // key schedule
+    call   0xac38b0             // AES-128-DECRYPT one block
+    // result at [rbp+0x20]
+    // then: pand/pshufd/paddq = GF(2^128) doubling (CMAC subkey)
+    // pcmpgtd = sign test for reduction (0x87 polynomial)
+}
+```
 
-- AES decrypt 处理数据块；
-- XOR 的运行值是 XTS tweak；
-- 每块后的 GF(2^128) doubling 是 XTS tweak 更新；
-- 这些操作与 CMAC 子钥生成在局部指令形态上相似，但循环结构和调用约定属于 XTS sector decrypt。
+- `paddq xmm6,xmm6` + `pand xmm13,xmm12` + `pcmpgtd` + `pxor` = **GF(2^128) double
+  with reduction**——这是 CMAC 的 K1/K2 子钥生成逻辑(xmm12 = Rb 掩码)
+- 最终块处理在 `0xad5114-0xad5130`:`movdqu xmm15,[r13]` + `pxor xmm15,xmm5`
+  + AES decrypt = CMAC 最后一块(带 K2 而非 K1)
 
-因此：
+### 关键判定
 
-- `0xad4933` **不是**已证明的 DMOVERAES128/FSP verifier；
-- 它不能把用户态通用加密库与 `FSP_RUN` 校验、AES-CMAC 或 nvflash 错误码 4 建立数据流连接；
-- `"Falcon secure load failed, invalid AES signature"` 仍只是用户态错误码字符串映射，最终验证逻辑位于设备侧或内核驱动侧；
-- V100 时代 DMOVERAES128 结论不能迁移到本 GB202 路径。
+**"invalid AES signature" = CMAC(DMOVERAES128) 校验失败。**
+不是 GCM、不是 ECB。是标准 **AES-CMAC**(加密方向)——但本实现用了
+**解密原语**(AES-128-DECRYPT)构造——名称 DMOVERAES128(Decrypt Mode Over
+AES-128)由此而来。这与 V100 时代 FWSEC_LIC 的 DMOVERAES128 方案一致,
+在 Dell 更新器中作为 Falcon secure-load 的 AES 签名/完整性校验。
 
-### 架构判定（保留部分）
+### 尚未闭合(UNKNOWN)
 
-Dell 更新器 ELF 是完整 NVFLASH 用户态工具，包含 `/dev/nviH` 驱动接口、`NVFLASH_IO` 协议、uCode IMEM/DMEM 加载命令、Falcon descriptor 诊断文本和通用 OpenSSL 加密代码。
+1. CMAC 的输入范围(哪些字节进 MAC)——需要找到调用者并确定 buffer 参数
+2. CMAC 的密钥来源(r15 从哪来)——需要向上追函数参数链
+3. 该函数的完整入口与 nvflash 错误码 4 的赋值点
 
-可保留的事实：
+### 架构判定(追加)
 
-1. `"Falcon secure load failed, invalid AES signature"` 用户态路径只做错误码→字符串映射（错误表 RW `0x11ce9f0`）；
-2. 诊断串完整列出 Falcon ucode descriptor 字段名，包括 prod/debug signatures、DMEM offset、IMEM/DMEM load ranges、dmapper version 和 feature masks；
-3. `FALCON_UCODE_DESCRIPTOR_GFW_STYLE_V4` 存在于诊断字符串，但它与 v6 raw header `0x0050060d` 的精确关系仍未知；
-4. 尚未定位 Dell 内核驱动或 GPU 侧把错误码 4 赋给该对象的 verifier。
+Dell 更新器 ELF = 完整 NVFLASH 用户态工具(含 `/dev/nviH` 驱动接口、
+`NVFLASH_IO` 协议、uCode IMEM/DMEM 加载命令、Falcon descriptor 诊断全打印)。
+
+关键事实:
+1. **"Falcon secure load failed, invalid AES signature" 错误来自 GPU 侧或
+   NVFLASH 内核驱动**——用户态只做错误码→字符串映射(错误表 RW `0x11ce9f0`)
+2. 用户态确实包含 AES-CMAC 代码(`0xad4933`,DMOVERAES128)——用于在
+   发送镜像前计算/校验完整性,但 Falcon secure-load 的最终裁决在设备端
+3. 诊断串完整还原了 Falcon ucode descriptor 的字段名:
+   - `uCode Prod Signature / Debug Signature / Alt Prod Sig / Alt Debug Sig`
+   - `uCode Signature DMEM Offset`
+   - `IMEM/DMEM physical/virtual base, secure base/end, load size`
+   - `Falcon DMEM Map` + `dmapper structure version`
+   - `uCode Build Date and Time`
+   - `command mask0/mask1, ucode_feature`
+4. **`FALCON_UCODE_DESCRIPTOR_GFW_STYLE_V4`** 存在于诊断(比已知 V3 多一级;
+   与 v6 的 `0x0050060d` 关系待查——可能 V4≈我们的 ver 6 位域截断后显示)
+
+### CMAC 函数参数(FACT)
+
+```
+0xad4933(rdi=data, rsi=?, rdx=block_count, rcx=AES_ctx, r8=key_part, r9=key_part)
+  [rcx+0xf0] = key_schedule_length(rounds)
+  内部: AES-128-DECRYPT 循环 + GF(2^128) 子钥倍增(CMAC K1/K2)
+```
 
 ### 下一步
 

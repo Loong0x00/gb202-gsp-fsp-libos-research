@@ -1,0 +1,1 @@
+Two conflicts were only numeric Init diagnostic log spelling; retained the ABI patch's path/result/original_calls logs. Kept CS binding observer diagnostics. Corrected project_init_resolved to read the resolution flag; actual invocation is the separate ngx.init.return path=project_id event. No identity invented, no gate enabled, no frozen ABI changed.

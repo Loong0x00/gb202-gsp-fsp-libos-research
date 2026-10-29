@@ -1,0 +1,1 @@
+Two calibration pairs were verified exactly equal and finite, previewed, and raw planes removed after retaining CALIBRATION_VERIFICATION.json, per-frame metadata, hashes and previews. This is NR-disabled calibration only.

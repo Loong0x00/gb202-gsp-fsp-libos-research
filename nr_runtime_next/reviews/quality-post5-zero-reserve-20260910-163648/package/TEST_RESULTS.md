@@ -1,0 +1,1 @@
+Native CPU checks pass with explicit experimental reserve0 expectation; availability/invalid-budget/overflow refusal test passes. Actual Wine inert-host smoke passes, fake runtime never publishes production capability. No GPU/game test yet.

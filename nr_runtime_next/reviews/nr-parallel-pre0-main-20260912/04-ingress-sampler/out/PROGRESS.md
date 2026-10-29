@@ -1,0 +1,12 @@
+# Task D progress / Main handoff
+
+- **Complete for bounded task; candidate NOT frozen.** Main owns first freeze, learned computation/resource review, and any separately authorized dynamic experiment.
+- Independent `preprocess_candidate.py` lifts only first-full64-counter-zero, 64-pixel input/noise/control equations to logical[x][y][16] raw half bits. No Replay/Thread/interpreter wrapper, embedding, weight reads or NN prediction.
+- Explicit required raw-F32 sampler; explicit named NONNATIVE DIV/RCP/LG2/SQRT/SIN/COS policy. No guessed image/descriptor semantics or resource/noise placeholders.
+- Preserved one upper mirror, unmirrored hash coordinates, exact uint32 wrap, all live source F32 RN/FTZ and half RN boundaries, doubled-F32-then-half gain, source-guide first-counter copy, Style@180, model-mode@192 distinct from UseAutoMask, mask Y/Z controls, and full64 host gate vs low32 noise.
+- **15 synthetic feature-only tests pass** (`test_run_01.log`): gain .75/source .2 -> half b734, zero-gain signed zeros, exhaustive finite half round trips, independent hash wrap, mandatory sampler/policy failures, odd mirror rejection, masks and counter wrap.
+- Bounded host static evidence corroborates Vulkan mode0 linear / mode2 nearest, normalized and clamp-to-edge, plus exact NVX getter association and host gain/counter stores. Actual native descriptor bits, current formats/resources, filter precision and native approximate ops remain explicit boundaries.
+- Documented exact T1/T2/T3/T4 gates and source-order five-tap reconstruction. Temporal feature execution/history recurrence deliberately not implemented; no genuine resources zeroed. Copy shader/state/special-path gaps remain.
+- Retained disassembly-boundary correction: sampler R12 preservation starts at 0x18005028f, not 0x180050290; frontend prefix at 0x180022620 excluded, valid T3 zero at 0x180022623. Corrected proof and original scripts/logs coexist.
+- Actual project-input paths listed in `REPORT.md`: **30 bounded reads**, 14 bounded .text windows totaling 4,107 read bytes (including corrected overlap), three addressed .rdata slices, zero scans. Whole DLL/PTX hashes are packet metadata, not recomputed. No outside discovery/network/native execution/input changes.
+- Remaining: Main review of candidate/domain and contract; real launch/resource/control capture if separately gated; validated native sampler/approx policy; temporal producer closure and learned computation. No completion claim beyond this feature-only static scope.

@@ -1,0 +1,3 @@
+Source fact: cc_tinlayout_fused_swin_2h_64_2_upsample_fp8 has 7064 instructions (PACKET) and its entry source shows the first FP8 MMA A operand loaded directly from param+0-derived %rd1, with no decode/repack before the MMA (TWO_H_SOURCE lines 12–18, 125–275).
+
+Completed bounded source-only review. The report records literal 2h operand/address witnesses, K32 loops, barriers, FP8/half transitions, zero paths, and only carefully delimited 4h differences. Graph labels P0/P24 are not mapped to the entry’s four pointer parameters by the supplied material, so pointer-role claims remain unknown rather than inferred from adjacency.

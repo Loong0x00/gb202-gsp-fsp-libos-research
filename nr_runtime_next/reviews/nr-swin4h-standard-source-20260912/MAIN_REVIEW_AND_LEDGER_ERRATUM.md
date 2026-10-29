@@ -1,0 +1,7 @@
+# Main review: ordinary4h accepted from source operands, not the copied ledger
+
+Original REPORT.md retained. Main rejected its ordinary slab ledger because it copied UP source-equation candidates. Actual ordinary source/operand proofs establish gamma98320, QKV98592, bias147744, Qscale180512, final180528 and gamma196912 in197184-byte slabs. The upsample offsets131072/131584/180736/213504/213520/229904 are not ordinary locations. First ordinary NN equations used source-derived values before predictions; no numerical model was patched to fit.
+
+Main also rejects the report's claim that only block58 matches the ordinary entry or that shifted57/59/60 cannot use it. Actual current host ABI/selector bytes and complete original signed-origin grids establish conditional applicability to57–60, with current-static expected origins(0,-4),(0,0),(-4,-4),(-4,0). This is not a live mutable-instance or auxiliary sync-route guarantee. The separation of primary defaults from aux fields is retained. Block61 remains OUTVIEW and was not accepted here.
+
+`../nr-swin4h-standard-main-20260912/RESULTS.md` records all25originalCTAs/70400MMA/all250boundaries, every original-MMA/scalar/normalization/provenance/store check on all25CTAs,8tests and NN48–60 composition. Main's failed opcode alignment and480s observer-batch timeout are preserved separately; only missing reports were resumed. Worker source-only work did not itself run/accept these tests. FullNR/native/standalone gaps remain.

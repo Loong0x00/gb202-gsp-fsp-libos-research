@@ -1,0 +1,3 @@
+Concrete fact: block 61 is the 5,260-instruction `cc_tinlayout_fused_swin_4h_128_4_outview_fp8` entry (88-byte ABI); unlike ordinary source it loads param bytes +80/+84 into `%r73/%r74` at lines 12–16.
+
+Completed bounded source review. `REPORT.md` records the direct OUTVIEW operand-phase evidence, conditional +80/+84 write-extent binding, exact guarded final byte-address equations, truncating signed /4 handling, and the static-only `(0,-4)` origin boundary. No execution or numerical acceptance was performed.

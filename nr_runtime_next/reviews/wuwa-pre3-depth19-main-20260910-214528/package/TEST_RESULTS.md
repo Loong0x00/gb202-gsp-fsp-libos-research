@@ -1,0 +1,1 @@
+CPU regressions/strictformatnegativecontrols passed. Main owned GPU214251 passes actualSRV21/depth.375 stencil9 excluded/knownMV/paddedcrops/sourcebarriers/ownfence; simulatedNRproducer, noSR/game. D3D12debuglayer unavailable. Initial214043 fixture staging mismatch rejected19/21; retainedasfailed. NoactualPREgameNRclaimyet.

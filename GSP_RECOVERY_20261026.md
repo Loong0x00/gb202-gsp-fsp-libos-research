@@ -12,11 +12,12 @@
 
 ## 1. 实测，不靠推测
 
-原始恢复证据保存在私有本地目录，未纳入公开仓库。
+证据目录：
+`/home/user/rt_5090_project/gsp-recovery-20261026-2jdEH6/`
 
 - 当前内核：`7.2.11-arch1-1`。
 - GPU：`0000:01:00.0`，ASUS RTX 5090，VBIOS `98.02.2E.40.E0`。
-- 起止 boot ID 相同（具体 ID 已从公开副本移除）。
+- 起止 boot ID 相同：`ff7e30be-843c-45ab-9167-b3938e5b56f0`。
 - AMD 桌面 framebuffer 起止均为 `0 amdgpudrmfb`。
 - 修复前只有 `/dev/nvidiactl`，**没有 `/dev/nvidia0`**。
 - `sudo gpu-allowlist run gpu-status` 返回 `No devices were found`，退出码 6，内核无新增报错。

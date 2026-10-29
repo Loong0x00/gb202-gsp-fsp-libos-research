@@ -19,7 +19,6 @@
 - 原始 LibOS boot → init 回归：代码直接从生产镜像提取并验证哈希，不执行旧解释器、不 NOP、不直接跳 init。
 - `nvidia-gsp-lab` 功能 profile：生产 FMC SHA384/ECDSA-P384 验证通过后才建模 Booter 的 `verified` 位；原始 SBI server 创建/加载 GB20X 内核和 init 任务。
 - 原始 LibOS 已执行到 `0xffffffff93007324`（`sd s7,0x450(s0)`），并在本 profile 下发布 walk 表地址；详见 [docs/LAB_BOOT.md](docs/LAB_BOOT.md)。
-- 384B 启动区域表：生产者（原始 SBI server）实测 + 消费者契约（`(a5<<58)+a6+0x200`、16×24B、8 aperture 校验、9 条区域记录）；审计分支用 `handoff=fixture` 只声明被真实 RAM 支撑的区间并通过该检查点。
 - 保留原始 ROM 输入分支的审计门禁；它不是唯一开发路线。可以实现可验证的 BootROM 行为模型，不需要等待原始 ROM 字节。
 - 只在纯 TCG 中测试；无网络、无磁盘、无 GPU/VFIO 操作。
 
@@ -35,24 +34,15 @@ GSP stage=BOOTROM_REQUIRED
 
 `BOOTROM_REQUIRED` 仅表示原始 ROM 输入审计分支缺少输入，当前 `make preflight` 因此返回 1。它不是继续建立行为模型的障碍。
 
-新 CPU 子系统的真实结果（`handoff=fixture` 声明式 profile，2026-10-18）：
+新 CPU 子系统的真实结果：
 
 ```text
 ORIGINAL_BOOT_REACHED_INIT pc=0xffffffff93001ec6
-sp=0xffffffffa3008000 satp=0xf000000000000000 a0=0x30 a5=0x3 a6=0x7400000000000600
-BOOT_REGION_TABLE_ACCEPTED pc=0xffffffff93002052
-va=0x8000000000800000 len=0xf800000 pa=0x7400000000800000
-NEXT_UNMODELED_INPUT reason=init_args pc=0xffffffff9300395e a0=0xb line=0xdc
-TRAP_AFTER_PANIC mcause=0x5 mepc=0xffffffff930041c2 mtval=0xffffffff60050800
+sp=0xffffffffa3008000 satp=0xf000000000000000
+NEXT_UNMODELED_INPUT mcause=0xd mtval=0x0c00000000000200
 ```
 
-历史基线（`a6=0`、区域表未建模）停在 `mcause=0xd / mtval=0x0c00000000000200`。
-
-384 字节启动区域表的**生产者**已实测：`make probe-lab-table` 从原始 SBI server 抓表
-（`logs/lab-boot-region-table.bin`，本 profile 4 个非空项），并抓 init 解析后的 9 条记录
-（`logs/lab-region-records.bin`）。审计分支用 `handoff=fixture` 只声明被真实 RAM 支撑的区间。
-下一处缺项是 handoff init 参数 blob（`line 220`）和内核日志窗口（`0xffffffff60000000`），
-详见 `docs/MPU_MODEL.md`、`docs/LAB_BOOT.md`。
+下一处缺的是 init 消费的 384 字节启动区域表。其读取路径和生产初始化分区的 SBI 客户端已经定位，详见模型文档。
 
 `nvidia-gsp-lab` 功能 profile（同一生产输入 + 真实签名验证）已继续执行：
 
@@ -96,8 +86,6 @@ WALK_TABLE_ALLOCATED=0x1:0x8000000008028088:0x8000000000000001 ...
 - `make test-lab-fastpath`：受控 t0=4/stval=0 进入 0x930042f8，验证 fast path 只做 state 0→1、ref 不变、不调 0x93005B26/handler；明确不是真实 U-mode trap。
 - `make test-lab-t017`：验证 t0=17 handler 释放的是新分配对象 s1，不是用户 a0 s2；t0=17 是 create/register，不是 destroy。
 - `make test-lab-statecond`：验证 slow handler 在 state=1/ref=0 不 dtor、state=0/ref=0 走 0x93005B26→S-mode dtor；并说明普通 U-mode t0=4 fast path 不会进入该 slow handler。
-- `make probe-lab-table`：在原始 SBI server 运行时抓取 384B 启动区域表与 init 解析后的 9 条区域记录（证据采集，不写 guest 内存）。
-- `make probe-kernel`：`handoff=fixture` 声明式 profile 下，原始 LibOS 通过区域表检查，并记录下一处未建模输入（handoff init 参数 / 日志窗口）。
 
 ## 使用
 
@@ -114,8 +102,7 @@ make test-lab-gadget     # 受控 a1/PC 的 gadget→dtor 诊断
 make test-lab-fastpath   # 受控 t0=4 fast path 诊断
 make test-lab-t017       # t0=17 create/register 反例诊断
 make test-lab-statecond  # slow handler state/ref 条件诊断
-make probe-kernel  # 原始 boot → init → 区域表接受，记录下一处真实缺项
-make probe-lab-table  # 原始 SBI server 生成的 384B 区域表 + 解析记录
+make probe-kernel  # 原始 boot 自然进入 init，记录下一处真实缺项
 make preflight    # 仅原始 ROM 输入审计分支
 ```
 
@@ -144,7 +131,7 @@ make extract
 继续按实际消费者和生产者补齐模型，而不是等待完整手册：
 
 1. CPU/MPU 已有固件驱动的实现；高位 attr 的完整域/缓存行为、未知窗口冲突优先级和部分专有寄存器仍待恢复，不能静默猜。
-2. `nvidia-gsp` 审计分支已用 `handoff=fixture` 穿过 16×24 字节区域表（只声明被真实 RAM 支撑的区间）；下一处缺项是 handoff init 参数 blob 与内核日志窗口。`nvidia-gsp-lab` 功能 profile 由原始 SBI server 生成同一张表并执行到 walk 表发布。不得用假 global、空表或未支撑的地址混过检查。
+2. `nvidia-gsp` 审计分支仍停在 init 从 `(a5<<58)+a6+0x200` 读取 16×24 字节区域表；`nvidia-gsp-lab` 功能 profile 已通过该表并执行到 walk 表发布。不得用假 global 或空表混过检查。
 3. `nvidia-gsp-lab` 已得到本 profile 的 walk 表地址，但表内容位于 handle/内核对象空间；当前 MPU/handle 翻译未在回调上下文成功采样。需要继续恢复 CSR 1487/handle 表语义并读出表项。
 4. 生产镜像开头存在明文初始化分区与 SBI **客户端**，可继续追请求构造；它不是已发现的 M-mode 服务端。已确认 vendor EID/FID，不能再对所有 ecall 返回成功。
 5. FMC 包的认证/不透明载荷处理、M-mode 服务、DMA 和设备模型仍需完成。允许等价、可验证的 BootROM 行为模型，但不能把 CPU 子系统回归当作完整认证链启动。

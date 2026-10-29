@@ -1,0 +1,1 @@
+Game exit verified. Seven tests passed including real OpenGL3.3 copy/readback. Jar version0.1.1 and SHA verified. Only one active nr_scene_probe jar. All unrelated mod jars, options and Iris config unchanged. No NR enabled; no captures triggered.
